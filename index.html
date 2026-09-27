@@ -1210,6 +1210,45 @@
 
 
             <!-- =================================
+                 STEP 0: MANAGE CLASSES
+            ================================= -->
+
+            <section class="card">
+
+                <h2>
+                    Step 0: Manage Classes
+                </h2>
+
+                <p>
+                    Add every class/arm your school uses (e.g. "SS2 Science 1").
+                    Add each one once here — everyone then picks it from a
+                    dropdown everywhere else, so typos and inconsistent
+                    spelling/capitalization can't split one class's data
+                    into two.
+                </p>
+
+                <label for="newClassNameInput" style="display:block; margin-top:10px;">
+                    <strong>New Class</strong>
+                </label>
+
+                <input
+                    type="text"
+                    id="newClassNameInput"
+                    placeholder="e.g. SS2 Science 1"
+                >
+
+                <button id="addClassButton" style="margin-top:10px;">
+                    Add Class
+                </button>
+
+                <p id="classManagerStatus" style="margin-top:10px;"></p>
+
+                <div id="classListContainer" style="margin-top:10px;"></div>
+
+            </section>
+
+
+            <!-- =================================
                  STEP 1
             ================================= -->
 
@@ -1230,11 +1269,67 @@
                 </p>
 
 
+                <label for="classNameSelect" style="display:block; margin-top:10px;">
+                    <strong>Class</strong>
+                </label>
+
+                <select id="classNameSelect" style="margin-bottom:10px;">
+                    <option value="">-- Select Class --</option>
+                </select>
+
+                <p style="font-size:0.85em; opacity:0.8;">
+                    Don't see your class? Add it in Step 0 above first.
+                </p>
+
+
                 <button id="downloadTemplate">
 
                     Download Excel Template
 
                 </button>
+
+            </section>
+
+
+            <!-- =================================
+                 STEP 1B: PER-SUBJECT TEMPLATES
+            ================================= -->
+
+            <section class="card">
+
+                <h2>
+                    Step 1B: Subject Templates
+                </h2>
+
+                <p>
+                    A subject teacher can download just their subject's
+                    sheet, fill it in, and upload it here. It saves to
+                    your account and is automatically included the next
+                    time the full Excel template is downloaded for this
+                    class &mdash; even from a different device.
+                </p>
+
+                <label for="subjectTemplateSelect" style="display:block; margin-top:10px;">
+                    <strong>Subject</strong>
+                </label>
+
+                <select id="subjectTemplateSelect"></select>
+
+                <button id="downloadSubjectTemplate" style="margin-top:10px;">
+                    Download Subject Template
+                </button>
+
+                <label for="subjectTemplateFile" style="display:block; margin-top:15px;">
+                    <strong>Upload Completed Subject Template</strong>
+                </label>
+
+                <input
+                    type="file"
+                    id="subjectTemplateFile"
+                    accept=".xlsx,.xls"
+                >
+
+                <p id="subjectTemplateStatus" style="margin-top:10px;"></p>
 
             </section>
 
