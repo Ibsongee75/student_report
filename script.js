@@ -731,6 +731,24 @@ let excelFileInput;
 
 let fileStatus;
 
+let classNameInput;
+
+let newClassNameInput;
+
+let addClassButton;
+
+let classListContainer;
+
+let classManagerStatus;
+
+let subjectTemplateSelect;
+
+let downloadSubjectTemplateButton;
+
+let subjectTemplateFileInput;
+
+let subjectTemplateStatus;
+
 let reportSection;
 
 let studentSelect;
@@ -868,6 +886,51 @@ function initializeElements() {
     fileStatus =
         document.getElementById(
             "fileStatus"
+        );
+
+    classNameInput =
+        document.getElementById(
+            "classNameSelect"
+        );
+
+    newClassNameInput =
+        document.getElementById(
+            "newClassNameInput"
+        );
+
+    addClassButton =
+        document.getElementById(
+            "addClassButton"
+        );
+
+    classListContainer =
+        document.getElementById(
+            "classListContainer"
+        );
+
+    classManagerStatus =
+        document.getElementById(
+            "classManagerStatus"
+        );
+
+    subjectTemplateSelect =
+        document.getElementById(
+            "subjectTemplateSelect"
+        );
+
+    downloadSubjectTemplateButton =
+        document.getElementById(
+            "downloadSubjectTemplate"
+        );
+
+    subjectTemplateFileInput =
+        document.getElementById(
+            "subjectTemplateFile"
+        );
+
+    subjectTemplateStatus =
+        document.getElementById(
+            "subjectTemplateStatus"
         );
 
     reportSection =
@@ -1959,6 +2022,13 @@ async function checkLogin() {
             currentUserId =
                 null;
 
+            schoolClasses =
+                [];
+
+            renderClassList();
+
+            populateClassNameSelect();
+
             showLogin();
 
             return;
@@ -1972,6 +2042,9 @@ async function checkLogin() {
 
         currentUserId =
             user.id;
+
+
+        await fetchSchoolClasses();
 
 
         await checkSubscription(
@@ -3346,6 +3419,88 @@ if (backToAppButton) {
 }
 
 
+    if (
+        elementExists(
+            downloadSubjectTemplateButton
+        )
+    ) {
+
+        downloadSubjectTemplateButton.addEventListener(
+            "click",
+            downloadSubjectTemplate
+        );
+
+    }
+
+
+    if (
+        elementExists(
+            subjectTemplateFileInput
+        )
+    ) {
+
+        subjectTemplateFileInput.addEventListener(
+            "change",
+            handleSubjectTemplateUpload
+        );
+
+    }
+
+
+    if (
+        elementExists(
+            addClassButton
+        )
+    ) {
+
+        addClassButton.addEventListener(
+            "click",
+            async function () {
+
+                const name =
+                    elementExists(newClassNameInput)
+                        ? newClassNameInput.value
+                        : "";
+
+                const added = await addSchoolClass(name);
+
+                if (added && elementExists(newClassNameInput)) {
+                    newClassNameInput.value = "";
+                }
+
+            }
+        );
+
+    }
+
+
+    if (
+        elementExists(
+            classListContainer
+        )
+    ) {
+
+        classListContainer.addEventListener(
+            "click",
+            function (event) {
+
+                const button = event.target.closest(
+                    "[data-remove-class-id]"
+                );
+
+                if (!button) return;
+
+                deleteSchoolClass(
+                    button.getAttribute("data-remove-class-id"),
+                    button.getAttribute("data-remove-class-name")
+                );
+
+            }
+        );
+
+    }
+
+
     /* =====================================================
        GENERATE ALL BUTTON
 
@@ -3837,6 +3992,34 @@ function renderSubjectList() {
             }
         );
 
+    populateSubjectTemplateSelect();
+
+}
+
+
+/* =========================================================
+   SUBJECT TEMPLATE SELECT (Step 1B dropdown)
+   ========================================================= */
+
+function populateSubjectTemplateSelect() {
+
+    if (!elementExists(subjectTemplateSelect)) return;
+
+    const previousValue = subjectTemplateSelect.value;
+
+    subjectTemplateSelect.innerHTML = "";
+
+    schoolSubjects.forEach(function (subject) {
+        const option = document.createElement("option");
+        option.value = subject;
+        option.textContent = subject;
+        subjectTemplateSelect.appendChild(option);
+    });
+
+    if (schoolSubjects.includes(previousValue)) {
+        subjectTemplateSelect.value = previousValue;
+    }
+
 }
 
 
@@ -3967,10 +4150,617 @@ function getSubjectSheetName(
 
 
 /* =========================================================
+   SCHOOL CLASSES (SUPABASE)
+
+   A single, school-wide list of classes/arms, entered once and
+   picked from a dropdown everywhere else. This is what stops two
+   teachers on two devices from splitting one class's data into
+   two ("SS2 Science 1" vs "SS 2 SCIENCE1") by typing it differently.
+   ========================================================= */
+
+const SCHOOL_CLASSES_TABLE = "school_classes";
+
+let schoolClasses = [];
+
+/* Used only for de-duplication (so re-adding "SS2  Science 1" with
+   extra spaces or different case doesn't create a second class).
+   The class's display spelling — whatever was typed first — is
+   what's actually shown and stored as class_name everywhere else. */
+function normalizeClassKey(name) {
+    return String(name || "")
+        .toUpperCase()
+        .replace(/[^\p{L}\p{N}]+/gu, "");
+}
+
+async function fetchSchoolClasses() {
+
+    if (!currentUserId) {
+        schoolClasses = [];
+        renderClassList();
+        populateClassNameSelect();
+        return;
+    }
+
+    const { data, error } = await supabaseClient
+        .from(SCHOOL_CLASSES_TABLE)
+        .select("id, class_name")
+        .eq("user_id", currentUserId)
+        .eq("website_id", WEBSITE_ID)
+        .order("class_name", { ascending: true });
+
+    if (error) {
+        console.error("Fetch school classes error:", error);
+        return;
+    }
+
+    schoolClasses = data || [];
+
+    renderClassList();
+    populateClassNameSelect();
+
+}
+
+async function addSchoolClass(rawName) {
+
+    const cleaned = cleanStudentName(rawName);
+
+    if (!cleaned) {
+        alert("Please enter a class name.");
+        return false;
+    }
+
+    if (!currentUserId) {
+        alert("You must be signed in to add a class.");
+        return false;
+    }
+
+    const classKey = normalizeClassKey(cleaned);
+
+    const alreadyExists = schoolClasses.some(function (schoolClass) {
+        return normalizeClassKey(schoolClass.class_name) === classKey;
+    });
+
+    if (alreadyExists) {
+        if (elementExists(classManagerStatus)) {
+            classManagerStatus.textContent =
+                "That class already exists (matched an existing entry).";
+        }
+        return false;
+    }
+
+    const { error } = await supabaseClient
+        .from(SCHOOL_CLASSES_TABLE)
+        .insert({
+            user_id: currentUserId,
+            website_id: WEBSITE_ID,
+            class_name: cleaned,
+            class_key: classKey
+        });
+
+    if (error) {
+        console.error("Add school class error:", error);
+        if (elementExists(classManagerStatus)) {
+            classManagerStatus.textContent =
+                "❌ " + (error.message || "Could not add that class.");
+        }
+        return false;
+    }
+
+    if (elementExists(classManagerStatus)) {
+        classManagerStatus.textContent = "✅ Added \"" + cleaned + "\".";
+    }
+
+    await fetchSchoolClasses();
+
+    if (elementExists(classNameInput)) {
+        classNameInput.value = cleaned;
+    }
+
+    return true;
+
+}
+
+async function deleteSchoolClass(id, className) {
+
+    if (!id) return;
+
+    if (!confirm("Remove \"" + (className || "this class") + "\"? Scores already saved for it are not deleted.")) {
+        return;
+    }
+
+    const { error } = await supabaseClient
+        .from(SCHOOL_CLASSES_TABLE)
+        .delete()
+        .eq("id", id);
+
+    if (error) {
+        console.error("Delete school class error:", error);
+        if (elementExists(classManagerStatus)) {
+            classManagerStatus.textContent =
+                "❌ " + (error.message || "Could not remove that class.");
+        }
+        return;
+    }
+
+    if (elementExists(classManagerStatus)) {
+        classManagerStatus.textContent = "Removed \"" + className + "\".";
+    }
+
+    await fetchSchoolClasses();
+
+}
+
+function renderClassList() {
+
+    if (!elementExists(classListContainer)) return;
+
+    if (schoolClasses.length === 0) {
+        classListContainer.innerHTML =
+            "<p style=\"opacity:0.7;\">No classes added yet.</p>";
+        return;
+    }
+
+    classListContainer.innerHTML = schoolClasses.map(function (schoolClass) {
+        return (
+            "<div style=\"display:flex; align-items:center; gap:8px; margin-top:4px;\">" +
+            "<span>" + escapeHTML(schoolClass.class_name) + "</span>" +
+            "<button type=\"button\" data-remove-class-id=\"" + escapeHTML(String(schoolClass.id)) +
+            "\" data-remove-class-name=\"" + escapeHTML(schoolClass.class_name) + "\">Remove</button>" +
+            "</div>"
+        );
+    }).join("");
+
+}
+
+function populateClassNameSelect() {
+
+    if (!elementExists(classNameInput)) return;
+
+    const previousValue = classNameInput.value;
+
+    classNameInput.innerHTML =
+        "<option value=\"\">-- Select Class --</option>";
+
+    schoolClasses.forEach(function (schoolClass) {
+        const option = document.createElement("option");
+        option.value = schoolClass.class_name;
+        option.textContent = schoolClass.class_name;
+        classNameInput.appendChild(option);
+    });
+
+    const stillExists = schoolClasses.some(function (schoolClass) {
+        return schoolClass.class_name === previousValue;
+    });
+
+    if (stillExists) {
+        classNameInput.value = previousValue;
+    }
+
+}
+
+
+/* =========================================================
+   CLASS-TAGGED SUBJECT SCORES (SUPABASE)
+
+   Lets a subject teacher download just ONE subject's sheet,
+   fill it in, and upload it from any device. The upload is
+   saved to Supabase tagged by website_id + class_name + subject.
+   When the class teacher later downloads the combined ("general")
+   template, on any device, previously saved subject scores for
+   that class are fetched back and pre-filled into the workbook.
+   ========================================================= */
+
+const SUBJECT_SCORES_TABLE = "subject_scores";
+
+/* Every downloaded workbook (single-subject or general) carries a
+   hidden "Meta" sheet identifying which class (and, for a
+   single-subject file, which subject) it belongs to. This is what
+   lets an upload know its own class/subject without asking the
+   teacher to re-type it. */
+function buildMetaSheet(className, subject) {
+
+    const metaData = [
+        ["KEY", "VALUE"],
+        ["website_id", WEBSITE_ID],
+        ["class_name", className || ""],
+        ["subject", subject || ""],
+        ["generated_at", new Date().toISOString()]
+    ];
+
+    const metaSheet = XLSX.utils.aoa_to_sheet(metaData);
+    metaSheet["!cols"] = [{ wch: 14 }, { wch: 24 }];
+
+    return metaSheet;
+}
+
+function appendMetaSheet(workbook, className, subject) {
+
+    const metaSheet = buildMetaSheet(className, subject);
+
+    XLSX.utils.book_append_sheet(workbook, metaSheet, "Meta");
+
+    /* Hidden: this is bookkeeping, not something teachers should edit. */
+    const metaIndex = workbook.SheetNames.indexOf("Meta");
+    if (!workbook.Workbook) workbook.Workbook = {};
+    if (!workbook.Workbook.Sheets) workbook.Workbook.Sheets = [];
+    workbook.Workbook.Sheets[metaIndex] = { Hidden: 1 };
+
+}
+
+function readMetaFromWorkbook(workbook) {
+
+    const result = { website_id: "", class_name: "", subject: "" };
+
+    if (!workbook || !workbook.Sheets || !workbook.Sheets["Meta"]) {
+        return result;
+    }
+
+    const rows = XLSX.utils.sheet_to_json(
+        workbook.Sheets["Meta"],
+        { header: 1, defval: "" }
+    );
+
+    rows.forEach(function (row) {
+        const key = String(row[0] || "").trim();
+        const value = row[1];
+
+        if (key === "website_id") result.website_id = String(value || "").trim();
+        if (key === "class_name") result.class_name = String(value || "").trim();
+        if (key === "subject") result.subject = String(value || "").trim();
+    });
+
+    return result;
+
+}
+
+function getActiveClassName(required) {
+
+    const value = elementExists(classNameInput)
+        ? String(classNameInput.value || "").trim()
+        : "";
+
+    if (required && !value) {
+        alert("Please add a class in Step 0, then select it above.");
+    }
+
+    return value;
+
+}
+
+/* Same normalized composite key used on the Excel "Match Key"
+   column, so DB rows and spreadsheet rows always agree on identity
+   even when a student's name is typed with stray/extra spaces. */
+function computeMatchKey(admissionNo, studentName) {
+    return (
+        String(admissionNo || "").trim() +
+        "|" +
+        normalizeStudentName(studentName)
+    );
+}
+
+/* =========================================================
+   SAVE ONE SUBJECT'S SCORES TO SUPABASE
+   ========================================================= */
+async function saveSubjectScoresToDatabase(className, subject, rows) {
+
+    if (!currentUserId) {
+        throw new Error("You must be signed in to upload a subject template.");
+    }
+
+    const payloadRows = rows
+        .map(function (row) {
+
+            const admissionNo = String(row["Adm No"] || "").trim();
+            const studentName = cleanStudentName(row["Student Name"]);
+
+            if (!admissionNo && !studentName) return null;
+
+            return {
+                user_id: currentUserId,
+                website_id: WEBSITE_ID,
+                class_name: className,
+                subject: subject,
+                admission_no: admissionNo,
+                student_name: studentName,
+                match_key: computeMatchKey(admissionNo, studentName),
+                first_ca: row["1st CA"] === "" ? null : Number(row["1st CA"]),
+                second_ca: row["2nd CA"] === "" ? null : Number(row["2nd CA"]),
+                exams: row["Exams"] === "" ? null : Number(row["Exams"]),
+                updated_at: new Date().toISOString()
+            };
+
+        })
+        .filter(function (row) { return row !== null; });
+
+    if (payloadRows.length === 0) {
+        throw new Error("No student rows were found in that subject sheet.");
+    }
+
+    const { error } = await supabaseClient
+        .from(SUBJECT_SCORES_TABLE)
+        .upsert(payloadRows, {
+            onConflict: "user_id,website_id,class_name,subject,match_key"
+        });
+
+    if (error) {
+        console.error("Subject score upload error:", error);
+        throw new Error(error.message || "Could not save subject scores.");
+    }
+
+    return payloadRows.length;
+
+}
+
+/* =========================================================
+   FETCH PREVIOUSLY SAVED SUBJECT SCORES FOR A CLASS
+   Returns a map: { [subject]: [ {admission_no, student_name,
+   first_ca, second_ca, exams}, ... ] }
+   ========================================================= */
+async function fetchAllSavedSubjectScoresForClass(className, subjects) {
+
+    const result = {};
+    subjects.forEach(function (subject) { result[subject] = []; });
+
+    if (!currentUserId || !className) return result;
+
+    const { data, error } = await supabaseClient
+        .from(SUBJECT_SCORES_TABLE)
+        .select("subject, admission_no, student_name, first_ca, second_ca, exams")
+        .eq("user_id", currentUserId)
+        .eq("website_id", WEBSITE_ID)
+        .eq("class_name", className);
+
+    if (error) {
+        console.error("Fetch saved subject scores error:", error);
+        /* Non-fatal: fall back to a blank template rather than blocking download. */
+        return result;
+    }
+
+    (data || []).forEach(function (row) {
+        if (!result[row.subject]) result[row.subject] = [];
+        result[row.subject].push(row);
+    });
+
+    return result;
+
+}
+
+
+/* =========================================================
+   DOWNLOAD SINGLE-SUBJECT TEMPLATE
+
+   Lets a subject teacher download JUST their subject's sheet
+   (Adm No / Student Name / 1st CA / 2nd CA / Exams), tagged
+   with the class and subject in a hidden Meta sheet, pre-filled
+   with any scores already saved for that class+subject.
+   ========================================================= */
+async function downloadSubjectTemplate() {
+
+    try {
+
+        if (typeof XLSX === "undefined") {
+            alert("Excel library has not loaded. Please refresh the page.");
+            return;
+        }
+
+        const className = getActiveClassName(true);
+        if (!className) return;
+
+        if (!elementExists(subjectTemplateSelect) || !subjectTemplateSelect.value) {
+            alert("Please add and select a subject first.");
+            return;
+        }
+
+        const subject = subjectTemplateSelect.value;
+
+        setFileStatus("⏳ Preparing " + escapeHTML(subject) + " template…");
+
+        const savedBySubject = await fetchAllSavedSubjectScoresForClass(
+            className,
+            [subject]
+        );
+
+        const savedRows = savedBySubject[subject] || [];
+
+        const workbook = XLSX.utils.book_new();
+
+        const subjectData = [
+            ["Adm No", "Student Name", "1st CA", "2nd CA", "Exams", "Match Key"]
+        ];
+
+        const rowCount = Math.max(TEMPLATE_STUDENT_ROWS, savedRows.length);
+
+        for (let i = 0; i < rowCount; i++) {
+
+            const saved = savedRows[i];
+
+            if (saved) {
+                subjectData.push([
+                    saved.admission_no || "",
+                    saved.student_name || "",
+                    saved.first_ca ?? "",
+                    saved.second_ca ?? "",
+                    saved.exams ?? "",
+                    ""
+                ]);
+            } else if (i === 0 && savedRows.length === 0) {
+                subjectData.push(["001", "Example Student", "", "", "", ""]);
+            } else {
+                subjectData.push(["", "", "", "", "", ""]);
+            }
+
+        }
+
+        const subjectSheet = XLSX.utils.aoa_to_sheet(subjectData);
+
+        for (let row = 2; row <= rowCount + 1; row++) {
+            subjectSheet["F" + row] = {
+                t: "str",
+                f: `TRIM(A${row})&"|"&TRIM(CLEAN(SUBSTITUTE(B${row},CHAR(160)," ")))`
+            };
+        }
+
+        subjectSheet["!cols"] = [
+            { wch: 7 },
+            { wch: 14 },
+            { wch: 6 },
+            { wch: 6 },
+            { wch: 6 },
+            { wch: 10, hidden: true }
+        ];
+
+        subjectSheet["!freeze"] = { xSplit: 3, ySplit: 1 };
+
+        XLSX.utils.book_append_sheet(
+            workbook,
+            subjectSheet,
+            getSubjectSheetName(subject, workbook)
+        );
+
+        appendMetaSheet(workbook, className, subject);
+
+        const excelData = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
+
+        const blob = new Blob([excelData], {
+            type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        });
+
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+
+        link.href = url;
+        link.download =
+            className.replace(/[^a-z0-9]+/gi, "_") + "_" +
+            subject.replace(/[^a-z0-9]+/gi, "_") + "_Template.xlsx";
+
+        document.body.appendChild(link);
+        link.click();
+
+        setTimeout(function () {
+            URL.revokeObjectURL(url);
+            if (link.parentNode) link.parentNode.removeChild(link);
+        }, 5000);
+
+        setFileStatus(
+            "✅ " + escapeHTML(subject) + " template for " + escapeHTML(className) +
+            " downloaded (" + savedRows.length + " previously saved record(s) included)."
+        );
+
+    } catch (error) {
+
+        console.error("Subject template download error:", error);
+        alert("❌ Subject template could not be created.\n\n" + error.message);
+        setFileStatus("❌ Subject template generation failed.");
+
+    }
+
+}
+
+
+/* =========================================================
+   UPLOAD A COMPLETED SINGLE-SUBJECT TEMPLATE
+
+   Reads the hidden Meta sheet to learn which class/subject the
+   file belongs to (falling back to the Step 1B class/subject
+   pickers if a file has no Meta sheet), then saves every row to
+   Supabase so it is available on any device that later downloads
+   the general template for that class.
+   ========================================================= */
+function handleSubjectTemplateUpload(event) {
+
+    const file = event.target.files[0];
+    if (!file) return;
+
+    if (typeof XLSX === "undefined") {
+        if (elementExists(subjectTemplateStatus)) {
+            subjectTemplateStatus.textContent = "❌ Excel library has not loaded.";
+        }
+        return;
+    }
+
+    const reader = new FileReader();
+
+    reader.onload = async function (e) {
+
+        try {
+
+            const data = new Uint8Array(e.target.result);
+            const workbook = XLSX.read(data, { type: "array" });
+
+            const meta = readMetaFromWorkbook(workbook);
+
+            const className = meta.class_name || getActiveClassName(false);
+            const subject =
+                meta.subject ||
+                (elementExists(subjectTemplateSelect) ? subjectTemplateSelect.value : "");
+
+            if (!className || !subject) {
+                if (elementExists(subjectTemplateStatus)) {
+                    subjectTemplateStatus.textContent =
+                        "❌ Could not tell which class/subject this file is for. " +
+                        "Enter the Class Name and select the Subject above, then try again.";
+                }
+                return;
+            }
+
+            /* The subject-only template has exactly one (non-Meta) sheet. */
+            const sheetName = workbook.SheetNames.find(function (name) {
+                return name !== "Meta";
+            });
+
+            if (!sheetName) {
+                if (elementExists(subjectTemplateStatus)) {
+                    subjectTemplateStatus.textContent =
+                        "❌ No subject sheet found in that file.";
+                }
+                return;
+            }
+
+            const rows = XLSX.utils.sheet_to_json(
+                workbook.Sheets[sheetName],
+                { defval: "" }
+            );
+
+            if (elementExists(subjectTemplateStatus)) {
+                subjectTemplateStatus.textContent = "⏳ Saving " + subject + " scores…";
+            }
+
+            const savedCount = await saveSubjectScoresToDatabase(
+                className,
+                subject,
+                rows
+            );
+
+            if (elementExists(subjectTemplateStatus)) {
+                subjectTemplateStatus.textContent =
+                    "✅ Saved " + savedCount + " " + subject + " record(s) for " +
+                    className + ". They will appear automatically the next time " +
+                    "the general template is downloaded for this class, on any device.";
+            }
+
+        } catch (error) {
+
+            console.error("Subject template upload error:", error);
+
+            if (elementExists(subjectTemplateStatus)) {
+                subjectTemplateStatus.textContent =
+                    "❌ " + (error.message || "Could not save that subject template.");
+            }
+
+        }
+
+    };
+
+    reader.readAsArrayBuffer(file);
+
+}
+
+
+/* =========================================================
    DOWNLOAD EXCEL TEMPLATE
    ========================================================= */
 
-function downloadExcelTemplate() {
+async function downloadExcelTemplate() {
     try {
         if (typeof XLSX === "undefined") {
             alert("Excel library has not loaded. Please refresh the page.");
@@ -3987,6 +4777,10 @@ function downloadExcelTemplate() {
         }
 
         const workbook = XLSX.utils.book_new();
+
+        const activeClassName = getActiveClassName(true);
+        if (!activeClassName) return;
+
 
         /* =================================================
            SCORES SHEET
@@ -4024,6 +4818,18 @@ function downloadExcelTemplate() {
 
         scoresHeaders.push("Overall Total");
         scoresHeaders.push("Average");
+        setFileStatus(
+            "⏳ Checking for previously saved subject scores for " +
+            escapeHTML(activeClassName) + "…"
+        );
+
+        const savedScoresBySubject =
+            await fetchAllSavedSubjectScoresForClass(
+                activeClassName,
+                schoolSubjects
+            );
+
+
         scoresHeaders.push("Position");
         scoresHeaders.push("Class Teacher's Comment");
         scoresHeaders.push("Principal's Comment");
@@ -4131,7 +4937,8 @@ function downloadExcelTemplate() {
             ["Grade D Minimum", reportSettings.gradeD],
             ["Grade E Minimum", reportSettings.gradeE],
             ["Grade F Minimum", reportSettings.gradeF],
-            ["Subjects", schoolSubjects.join(", ")]
+            ["Subjects", schoolSubjects.join(", ")],
+            ["Class", activeClassName]
         ];
 
         const settingsSheet = XLSX.utils.aoa_to_sheet(settingsData);
@@ -4159,15 +4966,33 @@ function downloadExcelTemplate() {
                 "Match Key"
             ]];
 
+            /* Pre-fill with anything a subject teacher already
+               uploaded for this class via the single-subject
+               template, on this device or any other. */
+            const savedSubjectRows = savedScoresBySubject[subject] || [];
+
             for (let i = 1; i <= TEMPLATE_STUDENT_ROWS; i++) {
-                subjectData.push([
-                    i === 1 ? "001" : "",
-                    i === 1 ? "Example Student" : "",
-                    "",
-                    "",
-                    "",
-                    ""
-                ]);
+                const saved = savedSubjectRows[i - 1];
+
+                if (saved) {
+                    subjectData.push([
+                        saved.admission_no || "",
+                        saved.student_name || "",
+                        saved.first_ca ?? "",
+                        saved.second_ca ?? "",
+                        saved.exams ?? "",
+                        ""
+                    ]);
+                } else {
+                    subjectData.push([
+                        (i === 1 && savedSubjectRows.length === 0) ? "001" : "",
+                        (i === 1 && savedSubjectRows.length === 0) ? "Example Student" : "",
+                        "",
+                        "",
+                        "",
+                        ""
+                    ]);
+                }
             }
 
             const subjectSheet = XLSX.utils.aoa_to_sheet(subjectData);
@@ -4286,6 +5111,9 @@ function downloadExcelTemplate() {
             };
         }
 
+        /* Tag the whole workbook with the class it belongs to. */
+        appendMetaSheet(workbook, activeClassName, "");
+
         /* =================================================
            WRITE FILE
            ================================================= */
@@ -4301,7 +5129,7 @@ function downloadExcelTemplate() {
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
         link.href = url;
-        link.download = "Student_Report_Template.xlsx";
+        link.download = activeClassName.replace(/[^a-z0-9]+/gi, "_") + "_Student_Report_Template.xlsx";
         document.body.appendChild(link);
         link.click();
 
@@ -4312,10 +5140,18 @@ function downloadExcelTemplate() {
             }
         }, 5000);
 
+        const mergedSubjectCount = Object.keys(savedScoresBySubject).filter(function (subject) {
+            return (savedScoresBySubject[subject] || []).length > 0;
+        }).length;
+
         setFileStatus(
-            "✅ Template created successfully with " +
+            "✅ Template created successfully for " + escapeHTML(activeClassName) + " with " +
             schoolSubjects.length +
-            " subject sheet(s). Comments and all Behavioral Traits are now on the Scores sheet after Position."
+            " subject sheet(s)" +
+            (mergedSubjectCount > 0
+                ? " (" + mergedSubjectCount + " of them pre-filled with previously saved scores)"
+                : "") +
+            ". Comments and all Behavioral Traits are now on the Scores sheet after Position."
         );
 
     } catch (error) {
@@ -5232,6 +6068,46 @@ function attachBehaviorData(
                         ""
 
                 };
+
+            }
+
+
+            if (
+                setting ===
+                "Class"
+            ) {
+
+                const uploadedClassName =
+                    String(value || "").trim();
+
+                if (uploadedClassName) {
+
+                    const alreadyKnown = schoolClasses.some(
+                        function (schoolClass) {
+                            return (
+                                normalizeClassKey(schoolClass.class_name) ===
+                                normalizeClassKey(uploadedClassName)
+                            );
+                        }
+                    );
+
+                    if (alreadyKnown) {
+
+                        if (elementExists(classNameInput)) {
+                            classNameInput.value = uploadedClassName;
+                        }
+
+                    } else {
+
+                        /* Uploaded file references a class not yet in
+                           Step 0's list (e.g. first time on a new
+                           device) — add it so it becomes selectable
+                           and future downloads/uploads for it line up. */
+                        addSchoolClass(uploadedClassName);
+
+                    }
+
+                }
 
             }
 
