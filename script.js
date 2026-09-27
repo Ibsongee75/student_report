@@ -9124,20 +9124,21 @@ function getStudentSubjectTotals(student) {
 }
 
 function assignClassPositions(rows) {
-    /* Standard competition ranking: equal totals share a position,
-       and the next distinct total skips ahead accordingly
-       (e.g. 1, 2, 2, 4). */
+    /* Standard competition ranking: equal averages share a position,
+       and the next distinct average skips ahead accordingly
+       (e.g. 1, 2, 2, 4). Ranked by average (not overall total) so
+       students who offer fewer subjects aren't unfairly penalized. */
     const sorted = rows.slice().sort(function (a, b) {
-        return b.overallTotal - a.overallTotal;
+        return b.average - a.average;
     });
 
-    let lastTotal = null;
+    let lastAverage = null;
     let lastPosition = 0;
 
     sorted.forEach(function (row, index) {
-        if (lastTotal === null || row.overallTotal !== lastTotal) {
+        if (lastAverage === null || row.average !== lastAverage) {
             lastPosition = index + 1;
-            lastTotal = row.overallTotal;
+            lastAverage = row.average;
         }
         row.position = lastPosition;
     });
