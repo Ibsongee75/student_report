@@ -609,8 +609,6 @@
 
     </section>
 
-         
-
 
     <!-- =========================================
          HOW IT WORKS
@@ -620,7 +618,7 @@
 
         <h2 id="srg-steps-heading" class="srg-section-title">How it works</h2>
 
-        <div class="tutorial-card">
+      <div class="tutorial-card">
     <h3>🎥 Video Tutorial</h3>
     <p>Watch this video to learn how to use the Student Report Generator.</p>
 
@@ -632,7 +630,7 @@
     allowfullscreen>
 </iframe>
     </div>
-    </div>
+      </div>
 
         <ol class="srg-steps-list">
 
@@ -670,11 +668,13 @@
 
         </ol>
 
+    
+
     </section>
 
 </div>
 
-    
+
 
 
     <!-- =========================================
@@ -853,14 +853,6 @@
                     <li>
                         Student report generation
                     </li>
-                    
-                    <li>
-                        publish and check result online 
-                    </li>
-                    
-                    <li>
-                        Online result checker 
-                    </li>
 
                     <li>
                         Printing / PDF
@@ -941,13 +933,6 @@
                     <li>
                         School information
                     </li>
-                    <li>
-                        publish and check result online 
-                    </li>
-                    
-                    <li>
-                        Online result checker 
-                    </li>
 
                     <li>
                         Teacher/principal comments
@@ -1023,13 +1008,6 @@
                     <li>
                         Priority support
                     </li>
-                    <li>
-                        publish and check result online 
-                    </li>
-                    
-                    <li>
-                        Online result checker 
-                    </li>
 
                     <li>
                         1 account
@@ -1092,13 +1070,6 @@
 
                     <li>
                         Unlimited report generation
-                    </li>
-                    <li>
-                        publish and check result online 
-                    </li>
-                    
-                    <li>
-                        Online result checker 
                     </li>
 
                     <li>
@@ -1296,50 +1267,40 @@
 
 
             <!-- =================================
-                 STEP 1
+                 STEP 1A: MASTER STUDENT CLASS LIST
             ================================= -->
 
-            <section class="card">
-
-                <h2>
-                    Step 1A: Download Student Excel Template 👫
-                </h2>
-
+            <section class="card" id="studentRosterSection">
+                <h2>Step 1A: Master Student Class List Template</h2>
 
                 <p>
-
-                    Download the official 
-                    Student Excel template, enter 
-                    your students'information 
-                    and scores, then upload
-                    the completed file in 
-                    step 2 below.
-                    
-            
-                    
-
+                    Select the class, download the Class List Template, enter the students in Excel,
+                    then upload the completed file. This uploaded class list becomes the master list
+                    used by the subject templates and the General Master Excel Template.
                 </p>
 
-
-                <label for="classNameSelect" style="display:block; margin-top:10px;">
-                    <strong>Class</strong>
+                <label for="rosterClassSelect" style="display:block; margin-top:10px;">
+                    <strong>Select Class</strong>
                 </label>
-
-                <select id="classNameSelect" style="margin-bottom:10px;">
+                <select id="rosterClassSelect" style="margin-bottom:10px;">
                     <option value="">-- Select Class --</option>
                 </select>
 
-                <p style="font-size:0.85em; opacity:0.8;">
-                    Don't see your class? Add it in Step 0 above first.
-                </p>
+                <p id="selectedRosterClass" style="font-weight:bold; margin:5px 0 12px;"></p>
 
-
-                <button id="downloadTemplate">
-
-                    Download Student Template
-
+                <button type="button" id="downloadClassListTemplate">
+                    📥 Download Class List Template
                 </button>
 
+                <div style="margin-top:15px;">
+                    <label for="classListFile"><strong>Select Completed Class List</strong></label>
+                    <input type="file" id="classListFile" accept=".xlsx,.xls" style="display:block; margin-top:7px;">
+                    <button type="button" id="uploadClassListButton" style="margin-top:10px;">
+                        ⬆️ Upload Class List
+                    </button>
+                </div>
+
+                <p id="rosterStatus" style="margin-top:10px; font-weight:600;"></p>
             </section>
 
 
@@ -1348,23 +1309,24 @@
             ================================= -->
 
             <section class="card">
-
-                <h2>
-                    Step 1B: Subject Templates
-                </h2>
+                <h2>Step 1B: Subject Templates</h2>
 
                 <p>
-                    A subject teacher can download just their subject's
-                    sheet, fill it in, and upload it here. It saves to
-                    your account and is automatically included the next
-                    time the full Excel template is downloaded for this
-                    class &mdash; even from a different device.
+                    Select the class and subject. The downloaded subject template will already contain
+                    the Student Name and Admission No. from the uploaded Class List. The subject teacher
+                    only enters 1st CA, 2nd CA and Exams. Upload the completed subject template when done.
                 </p>
+
+                <label for="subjectClassSelect" style="display:block; margin-top:10px;">
+                    <strong>Select Class</strong>
+                </label>
+                <select id="subjectClassSelect" style="margin-bottom:10px;">
+                    <option value="">-- Select Class --</option>
+                </select>
 
                 <label for="subjectTemplateSelect" style="display:block; margin-top:10px;">
                     <strong>Subject</strong>
                 </label>
-
                 <select id="subjectTemplateSelect"></select>
 
                 <button id="downloadSubjectTemplate" style="margin-top:10px;">
@@ -1374,20 +1336,37 @@
                 <label for="subjectTemplateFile" style="display:block; margin-top:15px;">
                     <strong>Upload Completed Subject Template</strong>
                 </label>
-                <p>
-                    uploaded subject is saved on the database and written to student excel template in step 1A 
-                </p>
-
-                <input
-                    type="file"
-                    id="subjectTemplateFile"
-                    accept=".xlsx,.xls"
-                >
-
+                <input type="file" id="subjectTemplateFile" accept=".xlsx,.xls">
                 <p id="subjectTemplateStatus" style="margin-top:10px;"></p>
-
             </section>
 
+
+            <!-- =================================
+                 STEP 1C: GENERAL MASTER TEMPLATE
+            ================================= -->
+
+            <section class="card">
+                <h2>Step 1C: General Master Excel Template</h2>
+
+                <p>
+                    Select the class and download the General Master Excel Template. It will contain
+                    the uploaded Class List and all subject scores that have already been uploaded by
+                    subject teachers for that class.
+                </p>
+
+                <label for="generalClassSelect" style="display:block; margin-top:10px;">
+                    <strong>Select Class</strong>
+                </label>
+                <select id="generalClassSelect" style="margin-bottom:10px;">
+                    <option value="">-- Select Class --</option>
+                </select>
+
+                <p id="selectedGeneralClass" style="font-weight:bold; margin:5px 0 12px;"></p>
+
+                <button id="downloadTemplate">
+                    📥 Download General Master Excel Template
+                </button>
+            </section>
 
 
             <!-- =================================
@@ -1395,26 +1374,16 @@
             ================================= -->
 
             <section class="card">
+                <h2>Step 2: Upload Completed General Master Template</h2>
 
-                <h2>
-                    Step 2: Upload Completed Student Template
-                </h2>
                 <p>
-                    Upload the completed student excel template from step 1A above and click on generate button to generate 
+                    After completing the General Master Excel Template, upload it here to load the
+                    final class results into the report generator.
                 </p>
 
-
-                <input
-                    type="file"
-                    id="excelFile"
-                    accept=".xlsx,.xls"
-                >
-
-
+                <input type="file" id="excelFile" accept=".xlsx,.xls">
                 <p id="fileStatus"></p>
-
             </section>
-
 
 
             <!-- =================================
@@ -1661,7 +1630,7 @@
          YOUR JAVASCRIPT
     ========================================= -->
 
-    <script src="script.js?v=7"></script>
+    <script src="script.js?v=11"></script>
 
 
 </body>
