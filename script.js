@@ -741,6 +741,22 @@ let classListContainer;
 
 let classManagerStatus;
 
+let rosterRowsContainer;
+let addRosterRowButton;
+let saveRosterButton;
+let rosterStatus;
+let classRoster = [];
+
+/* Step 1A/1B/1C class-list controls */
+let rosterClassSelect;
+let downloadClassListTemplateButton;
+let classListFileInput;
+let uploadClassListButton;
+let subjectClassSelect;
+let generalClassSelect;
+let selectedRosterClass;
+let selectedGeneralClass;
+
 let subjectTemplateSelect;
 
 let downloadSubjectTemplateButton;
@@ -912,6 +928,16 @@ function initializeElements() {
         document.getElementById(
             "classManagerStatus"
         );
+
+    rosterStatus = document.getElementById("rosterStatus");
+    rosterClassSelect = document.getElementById("rosterClassSelect");
+    downloadClassListTemplateButton = document.getElementById("downloadClassListTemplate");
+    classListFileInput = document.getElementById("classListFile");
+    uploadClassListButton = document.getElementById("uploadClassListButton");
+    subjectClassSelect = document.getElementById("subjectClassSelect");
+    generalClassSelect = document.getElementById("generalClassSelect");
+    selectedRosterClass = document.getElementById("selectedRosterClass");
+    selectedGeneralClass = document.getElementById("selectedGeneralClass");
 
     subjectTemplateSelect =
         document.getElementById(
@@ -3447,6 +3473,51 @@ if (backToAppButton) {
     }
 
 
+    if (elementExists(downloadClassListTemplateButton)) {
+        downloadClassListTemplateButton.addEventListener("click", downloadClassListTemplate);
+    }
+    if (elementExists(classListFileInput)) {
+        classListFileInput.addEventListener("change", handleClassListFileSelected);
+    }
+
+    if (elementExists(uploadClassListButton)) {
+        uploadClassListButton.addEventListener("click", handleClassListUploadButton);
+    }
+    if (elementExists(rosterClassSelect)) {
+        rosterClassSelect.addEventListener("change", function () {
+            syncWorkflowClassSelectors(rosterClassSelect.value, rosterClassSelect);
+            loadClassRosterForSelectedClass();
+        });
+    }
+    if (elementExists(subjectClassSelect)) {
+        subjectClassSelect.addEventListener("change", function () {
+            syncWorkflowClassSelectors(subjectClassSelect.value, subjectClassSelect);
+        });
+    }
+    if (elementExists(generalClassSelect)) {
+        generalClassSelect.addEventListener("change", function () {
+            syncWorkflowClassSelectors(generalClassSelect.value, generalClassSelect);
+        });
+    }
+
+    if (elementExists(addRosterRowButton)) {
+        addRosterRowButton.addEventListener("click", function () {
+            classRoster.push({ admission_no: "", student_name: "", gender: "", house: "" });
+            renderRosterEditor();
+        });
+    }
+
+    if (elementExists(saveRosterButton)) {
+        saveRosterButton.addEventListener("click", saveClassRoster);
+    }
+
+    if (elementExists(classNameInput)) {
+        classNameInput.addEventListener("change", function () {
+            syncWorkflowClassSelectors(classNameInput.value, classNameInput);
+            loadClassRosterForSelectedClass();
+        });
+    }
+
     if (
         elementExists(
             addClassButton
@@ -3998,6 +4069,508 @@ function renderSubjectList() {
 
 
 /* =========================================================
+   STUDENT ROSTER / MASTER LIST
+   =========================================================
+   The roster is the authoritative list of students for a class.
+   It is saved in Supabase before teachers enter subject scores.
+   Subject templates read this roster automatically.
+   ========================================================= */
+
+const CLASS_ROSTER_TABLE = "class_students";
+
+function normalizeRosterStudentName(name) {
+    return cleanStudentName(name || "").trim();
+}
+
+function rosterKey(admissionNo, studentName) {
+    return computeMatchKey(admissionNo, studentName);
+}
+
+/* Pop-up notification for the Step 1A class list (top of screen, so it
+   is seen even when the status line is scrolled out of view). */
+function showRosterNotification(message, isError) {
+    let box = document.getElementById("rosterNotification");
+
+    if (!box) {
+        box = document.createElement("div");
+        box.id = "rosterNotification";
+        box.setAttribute("role", "status");
+        box.setAttribute("aria-live", "polite");
+        box.style.cssText =
+            "position:fixed;top:16px;left:50%;transform:translateX(-50%);" +
+            "z-index:100000;max-width:90vw;width:420px;padding:14px 40px 14px 16px;" +
+            "border-radius:10px;font-weight:600;font-size:15px;line-height:1.4;" +
+            "box-shadow:0 6px 24px rgba(0,0,0,.25);color:#fff;display:none;";
+
+        const close = document.createElement("button");
+        close.type = "button";
+        close.textContent = "×";
+        close.setAttribute("aria-label", "Dismiss notification");
+        close.style.cssText =
+            "position:absolute;top:6px;right:10px;background:none;border:none;" +
+            "color:#fff;font-size:22px;line-height:1;cursor:pointer;padding:0;";
+        close.addEventListener("click", function () { box.style.display = "none"; });
+
+        const text = document.createElement("span");
+        text.id = "rosterNotificationText";
+
+        box.appendChild(text);
+        box.appendChild(close);
+        document.body.appendChild(box);
+    }
+
+    box.style.background = isError ? "#b00020" : "#0b6b62";
+    document.getElementById("rosterNotificationText").textContent = message;
+    box.style.display = "block";
+
+    clearTimeout(showRosterNotification._timer);
+    showRosterNotification._timer = setTimeout(function () {
+        box.style.display = "none";
+    }, isError ? 9000 : 6000);
+}
+
+function setRosterStatus(message, isError) {
+    if (rosterStatus) {
+        rosterStatus.textContent = message || "";
+        rosterStatus.style.color = isError ? "#b00020" : "#0b6b62";
+    }
+
+    /* Pop up only for finished results (✅ / ❌), not progress or file-picked hints. */
+    const text = String(message || "");
+    if (text.indexOf("✅") === 0 || text.indexOf("❌") === 0 || isError) {
+        showRosterNotification(text, !!isError || text.indexOf("❌") === 0);
+    }
+}
+
+function renderRosterEditor() {
+    if (!rosterRowsContainer) return;
+
+    rosterRowsContainer.innerHTML = "";
+
+    if (!Array.isArray(classRoster) || classRoster.length === 0) {
+        classRoster.push({
+            admission_no: "",
+            student_name: "",
+            gender: "",
+            house: ""
+        });
+    }
+
+    classRoster.forEach(function (student, index) {
+        const row = document.createElement("div");
+        row.className = "roster-editor-row";
+        row.style.display = "grid";
+        row.style.gridTemplateColumns = "90px minmax(150px, 1fr) 90px 110px auto";
+        row.style.gap = "6px";
+        row.style.marginBottom = "7px";
+
+        row.innerHTML = `
+            <input type="text" value="${escapeHTML(student.admission_no || "")}"
+                placeholder="Adm. No." data-roster-field="admission_no" data-roster-index="${index}">
+            <input type="text" value="${escapeHTML(student.student_name || "")}"
+                placeholder="Student name" data-roster-field="student_name" data-roster-index="${index}">
+            <input type="text" value="${escapeHTML(student.gender || "")}"
+                placeholder="Gender" data-roster-field="gender" data-roster-index="${index}">
+            <input type="text" value="${escapeHTML(student.house || "")}"
+                placeholder="House" data-roster-field="house" data-roster-index="${index}">
+            <button type="button" data-remove-roster="${index}" title="Remove student">✕</button>
+        `;
+
+        rosterRowsContainer.appendChild(row);
+    });
+
+    rosterRowsContainer.querySelectorAll("[data-roster-field]").forEach(function (input) {
+        input.addEventListener("input", function () {
+            const index = Number(input.dataset.rosterIndex);
+            const field = input.dataset.rosterField;
+            if (!classRoster[index]) return;
+            classRoster[index][field] = input.value;
+        });
+    });
+
+    rosterRowsContainer.querySelectorAll("[data-remove-roster]").forEach(function (button) {
+        button.addEventListener("click", function () {
+            const index = Number(button.dataset.removeRoster);
+            classRoster.splice(index, 1);
+            renderRosterEditor();
+        });
+    });
+}
+
+async function fetchClassRoster(className) {
+    if (!currentUserId || !className) return [];
+
+    const { data, error } = await supabaseClient
+        .from(CLASS_ROSTER_TABLE)
+        .select("id, admission_no, student_name, gender, house, term, session")
+        .eq("owner_user_id", currentUserId)
+        .eq("website_id", WEBSITE_ID)
+        .eq("class_name", className)
+        .order("created_at", { ascending: true });
+
+    if (error) {
+        console.error("Fetch class roster error:", error);
+        throw new Error(error.message || "Could not load the class student list.");
+    }
+
+    return (data || []).map(function (row) {
+        return {
+            id: row.id,
+            admission_no: String(row.admission_no || "").trim(),
+            student_name: normalizeRosterStudentName(row.student_name),
+            gender: String(row.gender || "").trim(),
+            house: String(row.house || "").trim(),
+            term: String(row.term || "").trim(),
+            session: String(row.session || "").trim()
+        };
+    });
+}
+
+async function loadClassRosterForSelectedClass() {
+    const className = getSelectedWorkflowClass(rosterClassSelect || classNameInput, false);
+
+    if (!className) {
+        classRoster = [];
+        renderRosterEditor();
+        return;
+    }
+
+    setRosterStatus("⏳ Loading saved student list…");
+
+    try {
+        classRoster = await fetchClassRoster(className);
+        renderRosterEditor();
+
+        setRosterStatus(
+            classRoster.length
+                ? "✅ " + classRoster.length + " student(s) saved for " + className + "."
+                : "No student list has been saved for " + className + " yet."
+        );
+    } catch (error) {
+        setRosterStatus("❌ " + error.message, true);
+    }
+}
+
+async function saveClassRoster() {
+    const className = getSelectedWorkflowClass(rosterClassSelect || classNameInput, true);
+    if (!className) return;
+
+    const cleaned = (classRoster || [])
+        .map(function (student) {
+            return {
+                admission_no: String(student.admission_no || "").trim(),
+                student_name: normalizeRosterStudentName(student.student_name),
+                gender: String(student.gender || "").trim(),
+                house: String(student.house || "").trim()
+            };
+        })
+        .filter(function (student) {
+            return student.student_name !== "";
+        });
+
+    if (cleaned.length === 0) {
+        setRosterStatus("❌ Enter at least one student name.", true);
+        return;
+    }
+
+    const seen = new Set();
+    const duplicate = cleaned.find(function (student) {
+        const key = rosterKey(student.admission_no, student.student_name);
+        if (seen.has(key)) return true;
+        seen.add(key);
+        return false;
+    });
+
+    if (duplicate) {
+        setRosterStatus("❌ Duplicate student entry found: " + duplicate.student_name, true);
+        return;
+    }
+
+    if (!currentUserId) {
+        setRosterStatus("❌ Please sign in before saving the student list.", true);
+        return;
+    }
+
+    if (saveRosterButton) saveRosterButton.disabled = true;
+    setRosterStatus("⏳ Saving " + cleaned.length + " student(s) to the database…");
+
+    try {
+        const payload = cleaned.map(function (student) {
+            return {
+                owner_user_id: currentUserId,
+                website_id: WEBSITE_ID,
+                class_name: className,
+                admission_no: student.admission_no,
+                student_name: student.student_name,
+                gender: student.gender,
+                house: student.house,
+                match_key: rosterKey(student.admission_no, student.student_name),
+                updated_at: new Date().toISOString()
+            };
+        });
+
+        const { error } = await supabaseClient
+            .from(CLASS_ROSTER_TABLE)
+            .upsert(payload, {
+                onConflict: "owner_user_id,website_id,class_name,match_key"
+            });
+
+        if (error) throw new Error(error.message || "Could not save the student list.");
+
+        /* Remove database roster rows that were intentionally deleted. */
+        const keepKeys = new Set(payload.map(function (row) { return row.match_key; }));
+        const existing = await fetchClassRoster(className);
+
+        const removed = existing.filter(function (row) {
+            return !keepKeys.has(rosterKey(row.admission_no, row.student_name));
+        });
+
+        if (removed.length > 0) {
+            const ids = removed.map(function (row) { return row.id; }).filter(Boolean);
+            if (ids.length) {
+                const { error: deleteError } = await supabaseClient
+                    .from(CLASS_ROSTER_TABLE)
+                    .delete()
+                    .eq("owner_user_id", currentUserId)
+                    .eq("website_id", WEBSITE_ID)
+                    .eq("class_name", className)
+                    .in("id", ids);
+
+                if (deleteError) {
+                    console.warn("Some removed roster rows could not be deleted:", deleteError);
+                }
+            }
+        }
+
+        classRoster = cleaned;
+        renderRosterEditor();
+
+        setRosterStatus(
+            "✅ Student list saved. " + cleaned.length +
+            " name(s) will now appear automatically in every subject teacher template for " +
+            className + "."
+        );
+    } catch (error) {
+        console.error("Save class roster error:", error);
+        setRosterStatus("❌ " + error.message, true);
+    } finally {
+        if (saveRosterButton) saveRosterButton.disabled = false;
+    }
+}
+
+/* Merge the authoritative roster with existing subject scores.
+   Scores already saved for a student remain attached to that student. */
+function mergeRosterIntoSubjectRows(roster, savedRows) {
+    const byKey = new Map();
+
+    (savedRows || []).forEach(function (row) {
+        byKey.set(
+            rosterKey(row.admission_no, row.student_name),
+            row
+        );
+    });
+
+    return (roster || []).map(function (student) {
+        const existing = byKey.get(
+            rosterKey(student.admission_no, student.student_name)
+        );
+
+        return {
+            admission_no: student.admission_no || (existing ? existing.admission_no : ""),
+            student_name: student.student_name || (existing ? existing.student_name : ""),
+            first_ca: existing ? existing.first_ca : "",
+            second_ca: existing ? existing.second_ca : "",
+            exams: existing ? existing.exams : ""
+        };
+    });
+}
+
+/* =========================================================
+   STEP 1A — CLASS LIST EXCEL WORKFLOW
+   ========================================================= */
+function getSelectedWorkflowClass(selectElement, required) {
+    const value = selectElement ? String(selectElement.value || "").trim() : "";
+    if (required && !value) {
+        alert("Please select a class first.");
+    }
+    return value;
+}
+
+function syncWorkflowClassSelectors(value, source) {
+    const className = String(value || "").trim();
+    [rosterClassSelect, subjectClassSelect, generalClassSelect, classNameInput].forEach(function (select) {
+        if (!select || select === source) return;
+        const exists = Array.from(select.options || []).some(function (o) { return o.value === className; });
+        if (exists) select.value = className;
+    });
+    if (selectedRosterClass) selectedRosterClass.textContent = className ? "Students for: " + className : "";
+    if (selectedGeneralClass) selectedGeneralClass.textContent = className ? "General Master for: " + className : "";
+}
+
+function populateWorkflowClassSelectors() {
+    const selects = [rosterClassSelect, subjectClassSelect, generalClassSelect];
+    selects.forEach(function (select) {
+        if (!select) return;
+        const previous = select.value;
+        select.innerHTML = "<option value=\"\">-- Select Class --</option>";
+        schoolClasses.forEach(function (schoolClass) {
+            const option = document.createElement("option");
+            option.value = schoolClass.class_name;
+            option.textContent = schoolClass.class_name;
+            select.appendChild(option);
+        });
+        if (schoolClasses.some(function (c) { return c.class_name === previous; })) {
+            select.value = previous;
+        }
+    });
+    syncWorkflowClassSelectors(rosterClassSelect ? rosterClassSelect.value : (classNameInput ? classNameInput.value : ""));
+}
+
+function buildClassListWorkbook(className) {
+    const headers = ["Admission No", "Student Name", "Gender", "Class", "House", "Term", "Session"];
+    const data = [headers];
+    for (let i = 1; i <= TEMPLATE_STUDENT_ROWS; i++) {
+        data.push(["", "", "", className, "", "", ""]);
+    }
+    const workbook = XLSX.utils.book_new();
+    const sheet = XLSX.utils.aoa_to_sheet(data);
+    sheet["!cols"] = [
+        { wch: 9 }, { wch: 13 }, { wch: 8 }, { wch: 9 },
+        { wch: 10 }, { wch: 10 }, { wch: 10 }
+    ];
+    sheet["!freeze"] = { xSplit: 2, ySplit: 1 };
+    XLSX.utils.book_append_sheet(workbook, sheet, "Class List");
+    return workbook;
+}
+
+function downloadClassListTemplate() {
+    try {
+        if (typeof XLSX === "undefined") throw new Error("Excel library has not loaded. Please refresh the page.");
+        const className = getSelectedWorkflowClass(rosterClassSelect, true);
+        if (!className) return;
+        const workbook = buildClassListWorkbook(className);
+        const bytes = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
+        const blob = new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = className.replace(/[^a-z0-9]+/gi, "_") + "_Class_List_Template.xlsx";
+        document.body.appendChild(link);
+        link.click();
+        setTimeout(function () { URL.revokeObjectURL(url); link.remove(); }, 3000);
+        setRosterStatus("✅ Class List Template downloaded for " + className + ". Fill it in and upload it below.");
+    } catch (error) {
+        console.error("Class list template error:", error);
+        setRosterStatus("❌ " + (error.message || "Could not create the Class List Template."), true);
+    }
+}
+
+async function uploadClassListToDatabase(file) {
+    if (!file) return;
+    if (typeof XLSX === "undefined") {
+        setRosterStatus("❌ Excel library has not loaded. Please refresh the page.", true);
+        return;
+    }
+    if (!currentUserId) {
+        setRosterStatus("❌ Please sign in before uploading the class list.", true);
+        return;
+    }
+    const selectedClass = getSelectedWorkflowClass(rosterClassSelect, true);
+    if (!selectedClass) return;
+
+    if (uploadClassListButton) uploadClassListButton.disabled = true;
+    setRosterStatus("⏳ Reading the Class List…");
+    try {
+        const data = new Uint8Array(await file.arrayBuffer());
+        const workbook = XLSX.read(data, { type: "array" });
+        const sheetName = workbook.SheetNames[0];
+        if (!sheetName) throw new Error("No worksheet was found in the uploaded file.");
+        const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: "" });
+        const cleanRows = rows.map(function (row) {
+            return {
+                admission_no: String(row["Admission No"] || row["Adm No"] || "").trim(),
+                student_name: cleanStudentName(row["Student Name"]),
+                gender: String(row["Gender"] || "").trim(),
+                class_name: cleanStudentName(row["Class"] || selectedClass),
+                house: String(row["House"] || "").trim(),
+                term: String(row["Term"] || "").trim(),
+                session: String(row["Session"] || "").trim()
+            };
+        }).filter(function (row) { return row.student_name !== ""; });
+
+        if (!cleanRows.length) throw new Error("No student names were found. Please fill the Student Name column.");
+        const wrongClass = cleanRows.find(function (row) { return row.class_name && normalizeClassKey(row.class_name) !== normalizeClassKey(selectedClass); });
+        if (wrongClass) throw new Error("The uploaded file contains a different class (" + wrongClass.class_name + "). Please upload the template for " + selectedClass + ".");
+
+        const seen = new Set();
+        for (const row of cleanRows) {
+            const key = rosterKey(row.admission_no, row.student_name);
+            if (seen.has(key)) throw new Error("Duplicate student found: " + row.student_name + ".");
+            seen.add(key);
+        }
+
+        const payload = cleanRows.map(function (row) {
+            return {
+                owner_user_id: currentUserId,
+                website_id: WEBSITE_ID,
+                class_name: selectedClass,
+                admission_no: row.admission_no,
+                student_name: row.student_name,
+                gender: row.gender,
+                house: row.house,
+                term: row.term,
+                session: row.session,
+                match_key: rosterKey(row.admission_no, row.student_name)
+            };
+        });
+
+        setRosterStatus("⏳ Saving " + payload.length + " student(s) to Supabase…");
+        const { error: deleteError } = await supabaseClient.from(CLASS_ROSTER_TABLE)
+            .delete().eq("owner_user_id", currentUserId).eq("website_id", WEBSITE_ID).eq("class_name", selectedClass);
+        if (deleteError) throw deleteError;
+
+        const { error: insertError } = await supabaseClient.from(CLASS_ROSTER_TABLE).insert(payload);
+        if (insertError) throw insertError;
+
+        classRoster = await fetchClassRoster(selectedClass);
+        syncWorkflowClassSelectors(selectedClass, rosterClassSelect);
+        setRosterStatus("✅ " + classRoster.length + " student(s) uploaded and saved for " + selectedClass + ". The list is now available to Step 1B and Step 1C.");
+        /* Keep the selected filename visible after success. */
+        if (uploadClassListButton) uploadClassListButton.disabled = false;
+    } catch (error) {
+        console.error("Class list upload error:", error);
+        setRosterStatus("❌ " + (error.message || "Could not upload the Class List."), true);
+    } finally {
+        if (uploadClassListButton) uploadClassListButton.disabled = false;
+    }
+}
+
+function handleClassListFileSelected(event) {
+    const file = event && event.target ? event.target.files[0] : null;
+    if (!file) {
+        setRosterStatus("");
+        return;
+    }
+
+    setRosterStatus(
+        "📄 Selected: " + file.name + ". Click \"Upload Class List\" to save it."
+    );
+}
+
+async function handleClassListUploadButton() {
+    const file = classListFileInput && classListFileInput.files
+        ? classListFileInput.files[0]
+        : null;
+
+    if (!file) {
+        setRosterStatus("❌ Please select a completed Class List Excel file first.", true);
+        return;
+    }
+
+    await uploadClassListToDatabase(file);
+}
+
+/* =========================================================
    SUBJECT TEMPLATE SELECT (Step 1B dropdown)
    ========================================================= */
 
@@ -4197,6 +4770,14 @@ async function fetchSchoolClasses() {
 
     renderClassList();
     populateClassNameSelect();
+    populateWorkflowClassSelectors();
+
+    if (classNameInput && classNameInput.value) {
+        loadClassRosterForSelectedClass();
+    } else {
+        classRoster = [];
+        renderRosterEditor();
+    }
 
 }
 
@@ -4543,8 +5124,9 @@ async function downloadSubjectTemplate() {
             return;
         }
 
-        const className = getActiveClassName(true);
+        const className = getSelectedWorkflowClass(subjectClassSelect || classNameInput, true);
         if (!className) return;
+        syncWorkflowClassSelectors(className, subjectClassSelect || classNameInput);
 
         if (!elementExists(subjectTemplateSelect) || !subjectTemplateSelect.value) {
             alert("Please add and select a subject first.");
@@ -4561,6 +5143,10 @@ async function downloadSubjectTemplate() {
         );
 
         const savedRows = savedBySubject[subject] || [];
+        const roster = await fetchClassRoster(className);
+        const templateRows = roster.length
+            ? mergeRosterIntoSubjectRows(roster, savedRows)
+            : savedRows;
 
         const workbook = XLSX.utils.book_new();
 
@@ -4568,11 +5154,11 @@ async function downloadSubjectTemplate() {
             ["Adm No", "Student Name", "1st CA", "2nd CA", "Exams", "Match Key"]
         ];
 
-        const rowCount = Math.max(TEMPLATE_STUDENT_ROWS, savedRows.length);
+        const rowCount = Math.max(TEMPLATE_STUDENT_ROWS, templateRows.length);
 
         for (let i = 0; i < rowCount; i++) {
 
-            const saved = savedRows[i];
+            const saved = templateRows[i];
 
             if (saved) {
                 subjectData.push([
@@ -4583,7 +5169,7 @@ async function downloadSubjectTemplate() {
                     saved.exams ?? "",
                     ""
                 ]);
-            } else if (i === 0 && savedRows.length === 0) {
+            } else if (i === 0 && templateRows.length === 0) {
                 subjectData.push(["001", "Example Student", "", "", "", ""]);
             } else {
                 subjectData.push(["", "", "", "", "", ""]);
@@ -4689,7 +5275,7 @@ function handleSubjectTemplateUpload(event) {
 
             const meta = readMetaFromWorkbook(workbook);
 
-            const className = meta.class_name || getActiveClassName(false);
+            const className = meta.class_name || getSelectedWorkflowClass(subjectClassSelect || classNameInput, false);
             const subject =
                 meta.subject ||
                 (elementExists(subjectTemplateSelect) ? subjectTemplateSelect.value : "");
@@ -4778,8 +5364,9 @@ async function downloadExcelTemplate() {
 
         const workbook = XLSX.utils.book_new();
 
-        const activeClassName = getActiveClassName(true);
+        const activeClassName = getSelectedWorkflowClass(generalClassSelect || classNameInput, true);
         if (!activeClassName) return;
+        syncWorkflowClassSelectors(activeClassName, generalClassSelect || classNameInput);
 
 
         /* =================================================
@@ -4829,6 +5416,15 @@ async function downloadExcelTemplate() {
                 schoolSubjects
             );
 
+        const masterRoster = await fetchClassRoster(activeClassName);
+
+        if (masterRoster.length === 0) {
+            setRosterStatus(
+                "⚠️ No saved student list found. Add students in the Master Student List above first.",
+                true
+            );
+        }
+
 
         scoresHeaders.push("Position");
         scoresHeaders.push("Class Teacher's Comment");
@@ -4841,14 +5437,16 @@ async function downloadExcelTemplate() {
         const scoresData = [scoresHeaders];
 
         for (let i = 1; i <= TEMPLATE_STUDENT_ROWS; i++) {
+            const rosterStudent = masterRoster[i - 1];
+
             const row = [
-                i === 1 ? "001" : "",
-                i === 1 ? "Example Student" : "",
-                i === 1 ? "Male" : "",
-                i === 1 ? "SS2" : "",
-                i === 1 ? "First Term" : "",
-                i === 1 ? "2025/2026" : "",
-                i === 1 ? "Example House" : ""
+                rosterStudent ? rosterStudent.admission_no : (i === 1 && masterRoster.length === 0 ? "001" : ""),
+                rosterStudent ? rosterStudent.student_name : (i === 1 && masterRoster.length === 0 ? "Example Student" : ""),
+                rosterStudent ? rosterStudent.gender : (i === 1 && masterRoster.length === 0 ? "Male" : ""),
+                activeClassName,
+                rosterStudent ? rosterStudent.term : (i === 1 && masterRoster.length === 0 ? "First Term" : ""),
+                rosterStudent ? rosterStudent.session : (i === 1 && masterRoster.length === 0 ? "2025/2026" : ""),
+                rosterStudent ? rosterStudent.house : (i === 1 && masterRoster.length === 0 ? "Example House" : "")
             ];
 
             schoolSubjects.forEach(function () {
@@ -4970,9 +5568,12 @@ async function downloadExcelTemplate() {
                uploaded for this class via the single-subject
                template, on this device or any other. */
             const savedSubjectRows = savedScoresBySubject[subject] || [];
+            const rosterSubjectRows = masterRoster.length
+                ? mergeRosterIntoSubjectRows(masterRoster, savedSubjectRows)
+                : savedSubjectRows;
 
             for (let i = 1; i <= TEMPLATE_STUDENT_ROWS; i++) {
-                const saved = savedSubjectRows[i - 1];
+                const saved = rosterSubjectRows[i - 1];
 
                 if (saved) {
                     subjectData.push([
@@ -4985,8 +5586,8 @@ async function downloadExcelTemplate() {
                     ]);
                 } else {
                     subjectData.push([
-                        (i === 1 && savedSubjectRows.length === 0) ? "001" : "",
-                        (i === 1 && savedSubjectRows.length === 0) ? "Example Student" : "",
+                        (i === 1 && rosterSubjectRows.length === 0) ? "001" : "",
+                        (i === 1 && rosterSubjectRows.length === 0) ? "Example Student" : "",
                         "",
                         "",
                         "",
@@ -7132,9 +7733,9 @@ function getPublishResultData(student) {
             attendance:
                 behavior["Attendance"] || "",
             teacher_comment:
-                behavior["Class Teacher's Comment"] || "",
+                getAutomaticComments(average).teacher,
             principal_comment:
-                behavior["Principal's Comment"] || ""
+                getAutomaticComments(average).principal
         },
 
         subjects: subjects
@@ -8170,6 +8771,65 @@ async function generateAllReports() {
 
 
 /* =========================================================
+   AUTOMATIC TEACHER / PRINCIPAL COMMENTS
+   =========================================================
+   Comments are deliberately short enough for a report sheet but
+   detailed enough to be useful. They are based on the final average,
+   not on any individual subject.
+   ========================================================= */
+
+function getAutomaticComments(average) {
+    const score = Number(average) || 0;
+
+    if (score >= 80) {
+        return {
+            teacher: "An outstanding performance. The student has demonstrated excellent understanding, consistency and commitment. Maintain this high standard and continue to aim for excellence.",
+            principal: "Excellent result. The student has shown exceptional academic performance and commendable dedication. Keep up the excellent work."
+        };
+    }
+
+    if (score >= 70) {
+        return {
+            teacher: "A very good performance. The student has shown strong understanding and good commitment to learning. Greater consistency can lead to an even higher achievement.",
+            principal: "Very good performance. The student has demonstrated sound academic progress and should be encouraged to sustain this level of effort."
+        };
+    }
+
+    if (score >= 60) {
+        return {
+            teacher: "A good performance. The student has demonstrated a satisfactory understanding of the work. More focused study and consistent practice will help improve the result.",
+            principal: "Good performance. The student is making satisfactory progress. Continued effort and closer attention to areas of weakness are encouraged."
+        };
+    }
+
+    if (score >= 50) {
+        return {
+            teacher: "A fair performance. The student understands some of the work but needs more regular study and participation. Greater effort should be made to improve performance.",
+            principal: "Fair performance. The student should increase commitment to academic work and receive continued guidance in areas requiring improvement."
+        };
+    }
+
+    if (score >= 45) {
+        return {
+            teacher: "The performance is satisfactory but requires improvement. The student should study more consistently, participate actively and seek help when necessary.",
+            principal: "The result requires improvement. The student is encouraged to demonstrate greater commitment, discipline and regularity in academic activities."
+        };
+    }
+
+    if (score >= 40) {
+        return {
+            teacher: "The performance is below expectation. The student needs a more consistent study routine, active classroom participation and additional support in difficult areas.",
+            principal: "The result is below the expected standard. The student should receive closer academic guidance and make a stronger commitment to improvement."
+        };
+    }
+
+    return {
+        teacher: "The performance needs significant improvement. The student should work closely with teachers, develop a regular study routine and give greater attention to all academic activities.",
+        principal: "The result is below the expected standard. Immediate academic support, closer supervision and sustained effort are recommended for meaningful improvement."
+    };
+}
+
+/* =========================================================
    CREATE REPORT
    ========================================================= */
 
@@ -8560,16 +9220,13 @@ function createReport(student) {
        COMMENTS
        ===================================================== */
 
-    const teacherComment =
-        behavior[
-            "Class Teacher's Comment"
-        ] || "";
+    const automaticComments = getAutomaticComments(average);
 
+    const teacherComment =
+        automaticComments.teacher;
 
     const principalComment =
-        behavior[
-            "Principal's Comment"
-        ] || "";
+        automaticComments.principal;
 
 
     /* =====================================================
