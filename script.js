@@ -3,7 +3,7 @@
    =========================================================
 
    Before payment, the client calculates the unused balance from the
-   current subscription and sends it to the paystack-verification Edge
+   current subscription and sends it to the paystack-verification1 Edge
    Function as previous_remaining_reports.
 
    The server-side renewal must store that value in the NEW row as
@@ -184,11 +184,41 @@ function simpleHash(text) {
     return (hash >>> 0).toString(16);
 }
 
+/* The Automatic Comments feature stores its generated sentences on the student
+   and its bank inside the settings. Neither may change a report's fingerprint,
+   otherwise editing the comment bank would charge already-generated reports again.
+   Comments TYPED by a teacher still count. */
+function studentForFingerprint(student) {
+
+    const copy = Object.assign({}, student);
+    delete copy.__autoComment;
+
+    if (student && student.__behavior) {
+
+        const flags = student.__autoComment || {};
+
+        copy.__behavior = Object.assign({}, student.__behavior);
+
+        if (flags.teacher) delete copy.__behavior["Class Teacher's Comment"];
+        if (flags.principal) delete copy.__behavior["Principal's Comment"];
+
+    }
+
+    return copy;
+
+}
+
+function reportSettingsForFingerprint() {
+    const copy = Object.assign({}, reportSettings);
+    delete copy.commentBank;
+    return copy;
+}
+
 function getReportGenerationFingerprint(student) {
     const payload = {
-        student: stableValue(student),
+        student: stableValue(studentForFingerprint(student)),
         subjects: stableValue(schoolSubjects),
-        settings: stableValue(reportSettings),
+        settings: stableValue(reportSettingsForFingerprint()),
         website: WEBSITE_ID
     };
 
@@ -594,7 +624,7 @@ const REPORT_LIMITS = {
     /* Not a literal Infinity: kept as a large finite number so every
        calculation above (carry-over math, remaining counts, the
        claim_report_allowance RPC) stays well-defined. Must match
-       PLAN_CONFIG.unlimited.reports in the paystack-verification
+       PLAN_CONFIG.unlimited.reports in the paystack-verification1
        edge function and the RPC's own CASE branch. */
     unlimited: 1000000,
 
@@ -741,22 +771,6 @@ let classListContainer;
 
 let classManagerStatus;
 
-let rosterRowsContainer;
-let addRosterRowButton;
-let saveRosterButton;
-let rosterStatus;
-let classRoster = [];
-
-/* Step 1A/1B/1C class-list controls */
-let rosterClassSelect;
-let downloadClassListTemplateButton;
-let classListFileInput;
-let uploadClassListButton;
-let subjectClassSelect;
-let generalClassSelect;
-let selectedRosterClass;
-let selectedGeneralClass;
-
 let subjectTemplateSelect;
 
 let downloadSubjectTemplateButton;
@@ -821,7 +835,11 @@ document.addEventListener(
 
         createSubjectManager();
 
+        initializeAcademicWorkflow();
+
         restoreAppData();
+
+        createAutoCommentManager();
 
         loadSchoolInformation();
 
@@ -928,16 +946,6 @@ function initializeElements() {
         document.getElementById(
             "classManagerStatus"
         );
-
-    rosterStatus = document.getElementById("rosterStatus");
-    rosterClassSelect = document.getElementById("rosterClassSelect");
-    downloadClassListTemplateButton = document.getElementById("downloadClassListTemplate");
-    classListFileInput = document.getElementById("classListFile");
-    uploadClassListButton = document.getElementById("uploadClassListButton");
-    subjectClassSelect = document.getElementById("subjectClassSelect");
-    generalClassSelect = document.getElementById("generalClassSelect");
-    selectedRosterClass = document.getElementById("selectedRosterClass");
-    selectedGeneralClass = document.getElementById("selectedGeneralClass");
 
     subjectTemplateSelect =
         document.getElementById(
@@ -3473,51 +3481,6 @@ if (backToAppButton) {
     }
 
 
-    if (elementExists(downloadClassListTemplateButton)) {
-        downloadClassListTemplateButton.addEventListener("click", downloadClassListTemplate);
-    }
-    if (elementExists(classListFileInput)) {
-        classListFileInput.addEventListener("change", handleClassListFileSelected);
-    }
-
-    if (elementExists(uploadClassListButton)) {
-        uploadClassListButton.addEventListener("click", handleClassListUploadButton);
-    }
-    if (elementExists(rosterClassSelect)) {
-        rosterClassSelect.addEventListener("change", function () {
-            syncWorkflowClassSelectors(rosterClassSelect.value, rosterClassSelect);
-            loadClassRosterForSelectedClass();
-        });
-    }
-    if (elementExists(subjectClassSelect)) {
-        subjectClassSelect.addEventListener("change", function () {
-            syncWorkflowClassSelectors(subjectClassSelect.value, subjectClassSelect);
-        });
-    }
-    if (elementExists(generalClassSelect)) {
-        generalClassSelect.addEventListener("change", function () {
-            syncWorkflowClassSelectors(generalClassSelect.value, generalClassSelect);
-        });
-    }
-
-    if (elementExists(addRosterRowButton)) {
-        addRosterRowButton.addEventListener("click", function () {
-            classRoster.push({ admission_no: "", student_name: "", gender: "", house: "" });
-            renderRosterEditor();
-        });
-    }
-
-    if (elementExists(saveRosterButton)) {
-        saveRosterButton.addEventListener("click", saveClassRoster);
-    }
-
-    if (elementExists(classNameInput)) {
-        classNameInput.addEventListener("change", function () {
-            syncWorkflowClassSelectors(classNameInput.value, classNameInput);
-            loadClassRosterForSelectedClass();
-        });
-    }
-
     if (
         elementExists(
             addClassButton
@@ -4069,29 +4032,263 @@ function renderSubjectList() {
 
 
 /* =========================================================
-   STUDENT ROSTER / MASTER LIST
-   =========================================================
-   The roster is the authoritative list of students for a class.
-   It is saved in Supabase before teachers enter subject scores.
-   Subject templates read this roster automatically.
+   ACADEMIC CONTEXT  (Session + Term + Class)
+
+   Step 1A sets the working context. Everything else follows it:
+     - the master class list belongs to  Class + Session
+       (the same students carry through First/Second/Third Term)
+     - subject scores belong to          Class + Session + Term
+       so switching to Third Term loads Third Term data and never
+       overwrites First or Second Term.
    ========================================================= */
 
 const CLASS_ROSTER_TABLE = "class_students";
+const ACADEMIC_TERMS = ["First Term", "Second Term", "Third Term"];
+const ACADEMIC_CONTEXT_STORAGE_KEY = "reportgen1_academic_context";
 
-function normalizeRosterStudentName(name) {
-    return cleanStudentName(name || "").trim();
+let academicSessionSelect;
+let academicTermSelect;
+let downloadClassListTemplateButton;
+let classListFileInput;
+let uploadClassListButton;
+let rosterStatus;
+let studentPreviewContainer;
+let cumulativeStudentSelect;
+let showCumulativeButton;
+let downloadCumulativeButton;
+let cumulativeStatus;
+let cumulativeResult;
+
+let classRoster = [];
+let rosterFetchFailed = false;
+let cumulativeModel = null;
+
+function defaultAcademicSession() {
+    const now = new Date();
+    const startYear = now.getMonth() >= 8 ? now.getFullYear() : now.getFullYear() - 1;
+    return startYear + "/" + (startYear + 1);
 }
 
-function rosterKey(admissionNo, studentName) {
-    return computeMatchKey(admissionNo, studentName);
+function buildSessionOptions(selected) {
+
+    if (!elementExists(academicSessionSelect)) return;
+
+    const defaultStart = Number(defaultAcademicSession().split("/")[0]);
+    const sessions = [];
+
+    for (let year = defaultStart - 3; year <= defaultStart + 1; year++) {
+        sessions.push(year + "/" + (year + 1));
+    }
+
+    if (selected && sessions.indexOf(selected) === -1) sessions.push(selected);
+
+    academicSessionSelect.innerHTML = "";
+
+    sessions.forEach(function (session) {
+        const option = document.createElement("option");
+        option.value = session;
+        option.textContent = session;
+        academicSessionSelect.appendChild(option);
+    });
+
+    academicSessionSelect.value = selected || defaultAcademicSession();
+
 }
 
-/* Pop-up notification for the Step 1A class list (top of screen, so it
-   is seen even when the status line is scrolled out of view). */
+function getSelectedSession() {
+    return elementExists(academicSessionSelect)
+        ? String(academicSessionSelect.value || "").trim()
+        : "";
+}
+
+function getSelectedTerm() {
+    return elementExists(academicTermSelect)
+        ? String(academicTermSelect.value || "").trim()
+        : "";
+}
+
+/* Returns { className, session, term } or null (with an alert) when
+   the teacher has not chosen everything yet. */
+function getWorkflowContext(required) {
+
+    const className = getActiveClassName(false);
+    const session = getSelectedSession();
+    const term = getSelectedTerm();
+
+    if (required && (!className || !session || !term)) {
+        alert("Please select the Academic Session, Term and Class in Step 1A first.");
+        return null;
+    }
+
+    return { className: className, session: session, term: term };
+
+}
+
+function contextLabel(context, includeTerm) {
+
+    if (!context || !context.className) {
+        return "Select the Academic Session, Term and Class in Step 1A";
+    }
+
+    const parts = [context.className, context.session];
+    if (includeTerm !== false) parts.push(context.term);
+
+    return parts.join(" | ");
+
+}
+
+function updateContextBanners() {
+
+    const context = getWorkflowContext(false);
+
+    document.querySelectorAll(".context-banner").forEach(function (banner) {
+        const annual = banner.getAttribute("data-context") === "annual";
+        banner.textContent = contextLabel(context, !annual);
+    });
+
+}
+
+function saveAcademicContext() {
+    try {
+        localStorage.setItem(
+            ACADEMIC_CONTEXT_STORAGE_KEY,
+            JSON.stringify({
+                session: getSelectedSession(),
+                term: getSelectedTerm(),
+                className: getActiveClassName(false)
+            })
+        );
+    } catch (error) {
+        console.error("Unable to save academic context:", error);
+    }
+}
+
+/* Runs whenever Session, Term or Class changes (and after the class
+   list of Step 0 is (re)loaded). */
+function onClassContextChanged() {
+    updateContextBanners();
+    saveAcademicContext();
+    loadClassRosterForContext();
+    resetCumulativeView();
+}
+
+function initializeAcademicWorkflow() {
+
+    academicSessionSelect = document.getElementById("academicSessionSelect");
+    academicTermSelect = document.getElementById("academicTermSelect");
+    downloadClassListTemplateButton = document.getElementById("downloadClassListTemplate");
+    classListFileInput = document.getElementById("classListFile");
+    uploadClassListButton = document.getElementById("uploadClassListButton");
+    rosterStatus = document.getElementById("rosterStatus");
+    studentPreviewContainer = document.getElementById("studentPreviewContainer");
+    cumulativeStudentSelect = document.getElementById("cumulativeStudentSelect");
+    showCumulativeButton = document.getElementById("showCumulativeButton");
+    downloadCumulativeButton = document.getElementById("downloadCumulativeButton");
+    cumulativeStatus = document.getElementById("cumulativeStatus");
+    cumulativeResult = document.getElementById("cumulativeResult");
+
+    let saved = {};
+    try {
+        saved = JSON.parse(localStorage.getItem(ACADEMIC_CONTEXT_STORAGE_KEY) || "{}") || {};
+    } catch (error) {
+        saved = {};
+    }
+
+    buildSessionOptions(saved.session);
+
+    if (elementExists(academicTermSelect)) {
+        academicTermSelect.innerHTML = "";
+        ACADEMIC_TERMS.forEach(function (term) {
+            const option = document.createElement("option");
+            option.value = term;
+            option.textContent = term;
+            academicTermSelect.appendChild(option);
+        });
+        academicTermSelect.value =
+            ACADEMIC_TERMS.indexOf(saved.term) !== -1 ? saved.term : ACADEMIC_TERMS[0];
+    }
+
+    [academicSessionSelect, academicTermSelect, classNameInput].forEach(function (select) {
+        if (elementExists(select)) select.addEventListener("change", onClassContextChanged);
+    });
+
+    if (elementExists(downloadClassListTemplateButton)) {
+        downloadClassListTemplateButton.addEventListener("click", downloadClassListTemplate);
+    }
+
+    if (elementExists(classListFileInput)) {
+        classListFileInput.addEventListener("change", function () {
+            const file = classListFileInput.files && classListFileInput.files[0];
+            setRosterStatus(
+                file
+                    ? "📄 Selected: " + file.name + ". Click \"Upload Class List\" to save it."
+                    : ""
+            );
+        });
+    }
+
+    if (elementExists(uploadClassListButton)) {
+        uploadClassListButton.addEventListener("click", handleClassListUploadButton);
+    }
+
+    if (elementExists(showCumulativeButton)) {
+        showCumulativeButton.addEventListener("click", showCumulativePerformance);
+    }
+
+    if (elementExists(downloadCumulativeButton)) {
+        downloadCumulativeButton.addEventListener("click", downloadCumulativeWorkbook);
+    }
+
+    const cumulativeReportOneButton = document.getElementById("generateCumulativeReportButton");
+    const cumulativeReportAllButton = document.getElementById("generateAllCumulativeReportsButton");
+
+    if (elementExists(cumulativeReportOneButton)) {
+        cumulativeReportOneButton.addEventListener("click", function () {
+            generateCumulativeReports("one");
+        });
+    }
+
+    if (elementExists(cumulativeReportAllButton)) {
+        cumulativeReportAllButton.addEventListener("click", function () {
+            generateCumulativeReports("all");
+        });
+    }
+
+    if (elementExists(cumulativeStudentSelect)) {
+        cumulativeStudentSelect.addEventListener("change", renderCumulativeStudent);
+    }
+
+    updateContextBanners();
+
+}
+
+/* Remember the last class after Step 0's list has loaded. */
+function restoreSavedClassSelection() {
+
+    if (!elementExists(classNameInput) || classNameInput.value) return;
+
+    try {
+        const saved = JSON.parse(localStorage.getItem(ACADEMIC_CONTEXT_STORAGE_KEY) || "{}") || {};
+        const exists = schoolClasses.some(function (schoolClass) {
+            return schoolClass.class_name === saved.className;
+        });
+        if (exists) classNameInput.value = saved.className;
+    } catch (error) {
+        /* ignore */
+    }
+
+}
+
+
+/* =========================================================
+   NOTIFICATIONS  (pop-up at the top of the screen)
+   ========================================================= */
 function showRosterNotification(message, isError) {
+
     let box = document.getElementById("rosterNotification");
 
     if (!box) {
+
         box = document.createElement("div");
         box.id = "rosterNotification";
         box.setAttribute("role", "status");
@@ -4102,6 +4299,9 @@ function showRosterNotification(message, isError) {
             "border-radius:10px;font-weight:600;font-size:15px;line-height:1.4;" +
             "box-shadow:0 6px 24px rgba(0,0,0,.25);color:#fff;display:none;";
 
+        const text = document.createElement("span");
+        text.id = "rosterNotificationText";
+
         const close = document.createElement("button");
         close.type = "button";
         close.textContent = "×";
@@ -4111,12 +4311,10 @@ function showRosterNotification(message, isError) {
             "color:#fff;font-size:22px;line-height:1;cursor:pointer;padding:0;";
         close.addEventListener("click", function () { box.style.display = "none"; });
 
-        const text = document.createElement("span");
-        text.id = "rosterNotificationText";
-
         box.appendChild(text);
         box.appendChild(close);
         document.body.appendChild(box);
+
     }
 
     box.style.background = isError ? "#b00020" : "#0b6b62";
@@ -4127,437 +4325,322 @@ function showRosterNotification(message, isError) {
     showRosterNotification._timer = setTimeout(function () {
         box.style.display = "none";
     }, isError ? 9000 : 6000);
+
 }
 
 function setRosterStatus(message, isError) {
+
     if (rosterStatus) {
         rosterStatus.textContent = message || "";
         rosterStatus.style.color = isError ? "#b00020" : "#0b6b62";
     }
 
-    /* Pop up only for finished results (✅ / ❌), not progress or file-picked hints. */
+    /* Pop up only for finished results, not progress or file-picked hints. */
     const text = String(message || "");
+
     if (text.indexOf("✅") === 0 || text.indexOf("❌") === 0 || isError) {
         showRosterNotification(text, !!isError || text.indexOf("❌") === 0);
     }
+
 }
 
-function renderRosterEditor() {
-    if (!rosterRowsContainer) return;
 
-    rosterRowsContainer.innerHTML = "";
-
-    if (!Array.isArray(classRoster) || classRoster.length === 0) {
-        classRoster.push({
-            admission_no: "",
-            student_name: "",
-            gender: "",
-            house: ""
-        });
-    }
-
-    classRoster.forEach(function (student, index) {
-        const row = document.createElement("div");
-        row.className = "roster-editor-row";
-        row.style.display = "grid";
-        row.style.gridTemplateColumns = "90px minmax(150px, 1fr) 90px 110px auto";
-        row.style.gap = "6px";
-        row.style.marginBottom = "7px";
-
-        row.innerHTML = `
-            <input type="text" value="${escapeHTML(student.admission_no || "")}"
-                placeholder="Adm. No." data-roster-field="admission_no" data-roster-index="${index}">
-            <input type="text" value="${escapeHTML(student.student_name || "")}"
-                placeholder="Student name" data-roster-field="student_name" data-roster-index="${index}">
-            <input type="text" value="${escapeHTML(student.gender || "")}"
-                placeholder="Gender" data-roster-field="gender" data-roster-index="${index}">
-            <input type="text" value="${escapeHTML(student.house || "")}"
-                placeholder="House" data-roster-field="house" data-roster-index="${index}">
-            <button type="button" data-remove-roster="${index}" title="Remove student">✕</button>
-        `;
-
-        rosterRowsContainer.appendChild(row);
-    });
-
-    rosterRowsContainer.querySelectorAll("[data-roster-field]").forEach(function (input) {
-        input.addEventListener("input", function () {
-            const index = Number(input.dataset.rosterIndex);
-            const field = input.dataset.rosterField;
-            if (!classRoster[index]) return;
-            classRoster[index][field] = input.value;
-        });
-    });
-
-    rosterRowsContainer.querySelectorAll("[data-remove-roster]").forEach(function (button) {
-        button.addEventListener("click", function () {
-            const index = Number(button.dataset.removeRoster);
-            classRoster.splice(index, 1);
-            renderRosterEditor();
-        });
-    });
+/* =========================================================
+   MASTER CLASS LIST  (STEP 1A)
+   ========================================================= */
+function rosterKey(admissionNo, studentName) {
+    return computeMatchKey(admissionNo, studentName);
 }
 
-async function fetchClassRoster(className) {
-    if (!currentUserId || !className) return [];
+async function fetchClassRoster(className, session) {
+
+    rosterFetchFailed = false;
+
+    if (!currentUserId || !className || !session) return [];
 
     const { data, error } = await supabaseClient
         .from(CLASS_ROSTER_TABLE)
-        .select("id, admission_no, student_name, gender, house, term, session")
+        .select("admission_no, student_name, gender, house, sort_order")
         .eq("owner_user_id", currentUserId)
         .eq("website_id", WEBSITE_ID)
         .eq("class_name", className)
-        .order("created_at", { ascending: true });
+        .eq("session", session)
+        .order("sort_order", { ascending: true });
 
     if (error) {
-        console.error("Fetch class roster error:", error);
-        throw new Error(error.message || "Could not load the class student list.");
+        /* Non-fatal: templates fall back to blank name cells. */
+        console.error("Fetch class list error:", error);
+        rosterFetchFailed = true;
+        return [];
     }
 
     return (data || []).map(function (row) {
         return {
-            id: row.id,
             admission_no: String(row.admission_no || "").trim(),
-            student_name: normalizeRosterStudentName(row.student_name),
+            student_name: cleanStudentName(row.student_name),
             gender: String(row.gender || "").trim(),
-            house: String(row.house || "").trim(),
-            term: String(row.term || "").trim(),
-            session: String(row.session || "").trim()
+            house: String(row.house || "").trim()
         };
     });
+
 }
 
-async function loadClassRosterForSelectedClass() {
-    const className = getSelectedWorkflowClass(rosterClassSelect || classNameInput, false);
+/* Step 1B: show the students of the selected class. */
+function renderStudentPreview() {
 
-    if (!className) {
-        classRoster = [];
-        renderRosterEditor();
+    if (!elementExists(studentPreviewContainer)) return;
+
+    const context = getWorkflowContext(false);
+
+    if (!context.className) {
+        studentPreviewContainer.innerHTML = "";
         return;
     }
 
-    setRosterStatus("⏳ Loading saved student list…");
-
-    try {
-        classRoster = await fetchClassRoster(className);
-        renderRosterEditor();
-
-        setRosterStatus(
-            classRoster.length
-                ? "✅ " + classRoster.length + " student(s) saved for " + className + "."
-                : "No student list has been saved for " + className + " yet."
-        );
-    } catch (error) {
-        setRosterStatus("❌ " + error.message, true);
-    }
-}
-
-async function saveClassRoster() {
-    const className = getSelectedWorkflowClass(rosterClassSelect || classNameInput, true);
-    if (!className) return;
-
-    const cleaned = (classRoster || [])
-        .map(function (student) {
-            return {
-                admission_no: String(student.admission_no || "").trim(),
-                student_name: normalizeRosterStudentName(student.student_name),
-                gender: String(student.gender || "").trim(),
-                house: String(student.house || "").trim()
-            };
-        })
-        .filter(function (student) {
-            return student.student_name !== "";
-        });
-
-    if (cleaned.length === 0) {
-        setRosterStatus("❌ Enter at least one student name.", true);
+    if (classRoster.length === 0) {
+        studentPreviewContainer.innerHTML =
+            "<p><em>No class list has been uploaded for " +
+            escapeHTML(context.className) + " (" + escapeHTML(context.session) +
+            ") yet. Upload it in Step 1A.</em></p>";
         return;
     }
 
-    const seen = new Set();
-    const duplicate = cleaned.find(function (student) {
-        const key = rosterKey(student.admission_no, student.student_name);
-        if (seen.has(key)) return true;
-        seen.add(key);
-        return false;
+    let html =
+        "<details><summary><strong>" + classRoster.length +
+        " student(s) in the class list</strong></summary>" +
+        "<table style=\"border-collapse:collapse;width:100%;margin-top:8px;\">" +
+        "<tr><th style=\"border:1px solid #ccc;padding:5px;\">#</th>" +
+        "<th style=\"border:1px solid #ccc;padding:5px;\">Adm No</th>" +
+        "<th style=\"border:1px solid #ccc;padding:5px;text-align:left;\">Student Name</th>" +
+        "<th style=\"border:1px solid #ccc;padding:5px;\">Gender</th></tr>";
+
+    classRoster.forEach(function (student, index) {
+        html +=
+            "<tr><td style=\"border:1px solid #ccc;padding:5px;text-align:center;\">" + (index + 1) + "</td>" +
+            "<td style=\"border:1px solid #ccc;padding:5px;text-align:center;\">" + escapeHTML(student.admission_no) + "</td>" +
+            "<td style=\"border:1px solid #ccc;padding:5px;\">" + escapeHTML(student.student_name) + "</td>" +
+            "<td style=\"border:1px solid #ccc;padding:5px;text-align:center;\">" + escapeHTML(student.gender) + "</td></tr>";
     });
 
-    if (duplicate) {
-        setRosterStatus("❌ Duplicate student entry found: " + duplicate.student_name, true);
+    html += "</table></details>";
+
+    studentPreviewContainer.innerHTML = html;
+
+}
+
+async function loadClassRosterForContext() {
+
+    const context = getWorkflowContext(false);
+
+    if (!context.className || !context.session || !currentUserId) {
+        classRoster = [];
+        renderStudentPreview();
         return;
     }
 
-    if (!currentUserId) {
-        setRosterStatus("❌ Please sign in before saving the student list.", true);
+    classRoster = await fetchClassRoster(context.className, context.session);
+    renderStudentPreview();
+
+    if (rosterFetchFailed) {
+        if (rosterStatus) {
+            rosterStatus.textContent =
+                "⚠ The saved class list could not be loaded (has the class_students SQL been run in Supabase?).";
+            rosterStatus.style.color = "#b00020";
+        }
         return;
     }
 
-    if (saveRosterButton) saveRosterButton.disabled = true;
-    setRosterStatus("⏳ Saving " + cleaned.length + " student(s) to the database…");
+    if (rosterStatus) {
+        rosterStatus.textContent = classRoster.length
+            ? classRoster.length + " student(s) saved for " + contextLabel(context, false) + "."
+            : "No class list saved yet for " + contextLabel(context, false) + ".";
+        rosterStatus.style.color = "#0b6b62";
+    }
 
-    try {
-        const payload = cleaned.map(function (student) {
-            return {
-                owner_user_id: currentUserId,
-                website_id: WEBSITE_ID,
-                class_name: className,
-                admission_no: student.admission_no,
-                student_name: student.student_name,
-                gender: student.gender,
-                house: student.house,
-                match_key: rosterKey(student.admission_no, student.student_name),
-                updated_at: new Date().toISOString()
-            };
-        });
+}
 
-        const { error } = await supabaseClient
-            .from(CLASS_ROSTER_TABLE)
-            .upsert(payload, {
-                onConflict: "owner_user_id,website_id,class_name,match_key"
-            });
+/* Merge the master class list with the scores already saved for a
+   subject. Class-list order wins. A saved score row is matched by
+   Adm No + name, then by Adm No alone, then by name alone when one
+   of the two sides has no Adm No - so adding an Adm No later, or
+   correcting a spelling, does not orphan scores that were saved. */
+function mergeRosterWithSavedScores(roster, savedRows) {
 
-        if (error) throw new Error(error.message || "Could not save the student list.");
+    if (!roster || roster.length === 0) return savedRows || [];
 
-        /* Remove database roster rows that were intentionally deleted. */
-        const keepKeys = new Set(payload.map(function (row) { return row.match_key; }));
-        const existing = await fetchClassRoster(className);
+    const byKey = new Map();
+    const byAdmission = new Map();
+    const byName = new Map();
 
-        const removed = existing.filter(function (row) {
-            return !keepKeys.has(rosterKey(row.admission_no, row.student_name));
-        });
+    (savedRows || []).forEach(function (saved) {
 
-        if (removed.length > 0) {
-            const ids = removed.map(function (row) { return row.id; }).filter(Boolean);
-            if (ids.length) {
-                const { error: deleteError } = await supabaseClient
-                    .from(CLASS_ROSTER_TABLE)
-                    .delete()
-                    .eq("owner_user_id", currentUserId)
-                    .eq("website_id", WEBSITE_ID)
-                    .eq("class_name", className)
-                    .in("id", ids);
+        const key = computeMatchKey(saved.admission_no, saved.student_name);
+        if (!byKey.has(key)) byKey.set(key, saved);
 
-                if (deleteError) {
-                    console.warn("Some removed roster rows could not be deleted:", deleteError);
-                }
+        const adm = normalizeStudentAdmissionNo(saved.admission_no);
+        if (adm && !byAdmission.has(adm)) byAdmission.set(adm, saved);
+
+        const name = normalizeStudentName(saved.student_name);
+        if (name && !byName.has(name)) byName.set(name, saved);
+
+    });
+
+    return roster.map(function (student) {
+
+        const adm = normalizeStudentAdmissionNo(student.admission_no);
+
+        let saved =
+            byKey.get(rosterKey(student.admission_no, student.student_name)) ||
+            (adm ? byAdmission.get(adm) : null) ||
+            null;
+
+        if (!saved) {
+            const candidate = byName.get(normalizeStudentName(student.student_name));
+            if (
+                candidate &&
+                (!adm || !normalizeStudentAdmissionNo(candidate.admission_no))
+            ) {
+                saved = candidate;
             }
         }
 
-        classRoster = cleaned;
-        renderRosterEditor();
+        return {
+            admission_no: student.admission_no,
+            student_name: student.student_name,
+            first_ca: saved ? saved.first_ca : null,
+            second_ca: saved ? saved.second_ca : null,
+            exams: saved ? saved.exams : null
+        };
+
+    });
+
+}
+
+/* Writes the master list into the Scores sheet of the general template
+   (Admission No, Name, Gender, Class, Term, Session, House). */
+function applyRosterToScoresSheet(scoresSheet, roster, context) {
+
+    const text = function (value) {
+        return { t: "s", v: String(value ?? ""), z: "@" };
+    };
+
+    if (!roster || roster.length === 0) {
+        /* No class list: keep the example row, but with the chosen term/session. */
+        scoresSheet["D2"] = text(context.className);
+        scoresSheet["E2"] = text(context.term);
+        scoresSheet["F2"] = text(context.session);
+        return 0;
+    }
+
+    const limit = Math.min(roster.length, TEMPLATE_STUDENT_ROWS);
+
+    for (let i = 0; i < limit; i++) {
+        const row = i + 2;
+        scoresSheet["A" + row] = text(roster[i].admission_no);
+        scoresSheet["B" + row] = text(roster[i].student_name);
+        scoresSheet["C" + row] = text(roster[i].gender);
+        scoresSheet["D" + row] = text(context.className);
+        scoresSheet["E" + row] = text(context.term);
+        scoresSheet["F" + row] = text(context.session);
+        scoresSheet["G" + row] = text(roster[i].house);
+    }
+
+    return limit;
+
+}
+
+function downloadWorkbook(workbook, fileName) {
+
+    const bytes = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
+
+    const blob = new Blob([bytes], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    });
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+
+    setTimeout(function () {
+        URL.revokeObjectURL(url);
+        if (link.parentNode) link.parentNode.removeChild(link);
+    }, 3000);
+
+}
+
+function safeFilePart(text) {
+    return String(text || "").replace(/[^a-z0-9]+/gi, "_").replace(/^_+|_+$/g, "");
+}
+
+async function downloadClassListTemplate() {
+
+    try {
+
+        if (typeof XLSX === "undefined") {
+            throw new Error("Excel library has not loaded. Please refresh the page.");
+        }
+
+        const context = getWorkflowContext(true);
+        if (!context) return;
+
+        /* Already-saved students are pre-filled so the form master can add to the list. */
+        const existing = await fetchClassRoster(context.className, context.session);
+
+        const data = [["Admission No", "Student Name", "Gender", "House", "Class", "Session"]];
+
+        for (let i = 0; i < TEMPLATE_STUDENT_ROWS; i++) {
+            const student = existing[i];
+            data.push([
+                student ? student.admission_no : "",
+                student ? student.student_name : "",
+                student ? student.gender : "",
+                student ? student.house : "",
+                context.className,
+                context.session
+            ]);
+        }
+
+        const sheet = XLSX.utils.aoa_to_sheet(data);
+
+        for (let row = 2; row <= TEMPLATE_STUDENT_ROWS + 1; row++) {
+            const cell = sheet["A" + row];
+            if (cell) { cell.t = "s"; cell.z = "@"; cell.v = String(cell.v ?? ""); }
+        }
+
+        sheet["!cols"] = [
+            { wch: 14 }, { wch: 28 }, { wch: 9 }, { wch: 12 }, { wch: 14 }, { wch: 11 }
+        ];
+        sheet["!freeze"] = { xSplit: 2, ySplit: 1 };
+
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, sheet, "Class List");
+
+        downloadWorkbook(
+            workbook,
+            safeFilePart(context.className) + "_" + safeFilePart(context.session) +
+            "_Class_List_Template.xlsx"
+        );
 
         setRosterStatus(
-            "✅ Student list saved. " + cleaned.length +
-            " name(s) will now appear automatically in every subject teacher template for " +
-            className + "."
+            "✅ Class List Template downloaded for " + contextLabel(context, false) +
+            ". Enter each student's name (Admission No is optional), then upload it here."
         );
+
     } catch (error) {
-        console.error("Save class roster error:", error);
-        setRosterStatus("❌ " + error.message, true);
-    } finally {
-        if (saveRosterButton) saveRosterButton.disabled = false;
-    }
-}
 
-/* Merge the authoritative roster with existing subject scores.
-   Scores already saved for a student remain attached to that student. */
-function mergeRosterIntoSubjectRows(roster, savedRows) {
-    const byKey = new Map();
-
-    (savedRows || []).forEach(function (row) {
-        byKey.set(
-            rosterKey(row.admission_no, row.student_name),
-            row
-        );
-    });
-
-    return (roster || []).map(function (student) {
-        const existing = byKey.get(
-            rosterKey(student.admission_no, student.student_name)
-        );
-
-        return {
-            admission_no: student.admission_no || (existing ? existing.admission_no : ""),
-            student_name: student.student_name || (existing ? existing.student_name : ""),
-            first_ca: existing ? existing.first_ca : "",
-            second_ca: existing ? existing.second_ca : "",
-            exams: existing ? existing.exams : ""
-        };
-    });
-}
-
-/* =========================================================
-   STEP 1A — CLASS LIST EXCEL WORKFLOW
-   ========================================================= */
-function getSelectedWorkflowClass(selectElement, required) {
-    const value = selectElement ? String(selectElement.value || "").trim() : "";
-    if (required && !value) {
-        alert("Please select a class first.");
-    }
-    return value;
-}
-
-function syncWorkflowClassSelectors(value, source) {
-    const className = String(value || "").trim();
-    [rosterClassSelect, subjectClassSelect, generalClassSelect, classNameInput].forEach(function (select) {
-        if (!select || select === source) return;
-        const exists = Array.from(select.options || []).some(function (o) { return o.value === className; });
-        if (exists) select.value = className;
-    });
-    if (selectedRosterClass) selectedRosterClass.textContent = className ? "Students for: " + className : "";
-    if (selectedGeneralClass) selectedGeneralClass.textContent = className ? "General Master for: " + className : "";
-}
-
-function populateWorkflowClassSelectors() {
-    const selects = [rosterClassSelect, subjectClassSelect, generalClassSelect];
-    selects.forEach(function (select) {
-        if (!select) return;
-        const previous = select.value;
-        select.innerHTML = "<option value=\"\">-- Select Class --</option>";
-        schoolClasses.forEach(function (schoolClass) {
-            const option = document.createElement("option");
-            option.value = schoolClass.class_name;
-            option.textContent = schoolClass.class_name;
-            select.appendChild(option);
-        });
-        if (schoolClasses.some(function (c) { return c.class_name === previous; })) {
-            select.value = previous;
-        }
-    });
-    syncWorkflowClassSelectors(rosterClassSelect ? rosterClassSelect.value : (classNameInput ? classNameInput.value : ""));
-}
-
-function buildClassListWorkbook(className) {
-    const headers = ["Admission No", "Student Name", "Gender", "Class", "House", "Term", "Session"];
-    const data = [headers];
-    for (let i = 1; i <= TEMPLATE_STUDENT_ROWS; i++) {
-        data.push(["", "", "", className, "", "", ""]);
-    }
-    const workbook = XLSX.utils.book_new();
-    const sheet = XLSX.utils.aoa_to_sheet(data);
-    sheet["!cols"] = [
-        { wch: 9 }, { wch: 13 }, { wch: 8 }, { wch: 9 },
-        { wch: 10 }, { wch: 10 }, { wch: 10 }
-    ];
-    sheet["!freeze"] = { xSplit: 2, ySplit: 1 };
-    XLSX.utils.book_append_sheet(workbook, sheet, "Class List");
-    return workbook;
-}
-
-function downloadClassListTemplate() {
-    try {
-        if (typeof XLSX === "undefined") throw new Error("Excel library has not loaded. Please refresh the page.");
-        const className = getSelectedWorkflowClass(rosterClassSelect, true);
-        if (!className) return;
-        const workbook = buildClassListWorkbook(className);
-        const bytes = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
-        const blob = new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = className.replace(/[^a-z0-9]+/gi, "_") + "_Class_List_Template.xlsx";
-        document.body.appendChild(link);
-        link.click();
-        setTimeout(function () { URL.revokeObjectURL(url); link.remove(); }, 3000);
-        setRosterStatus("✅ Class List Template downloaded for " + className + ". Fill it in and upload it below.");
-    } catch (error) {
         console.error("Class list template error:", error);
         setRosterStatus("❌ " + (error.message || "Could not create the Class List Template."), true);
-    }
-}
 
-async function uploadClassListToDatabase(file) {
-    if (!file) return;
-    if (typeof XLSX === "undefined") {
-        setRosterStatus("❌ Excel library has not loaded. Please refresh the page.", true);
-        return;
-    }
-    if (!currentUserId) {
-        setRosterStatus("❌ Please sign in before uploading the class list.", true);
-        return;
-    }
-    const selectedClass = getSelectedWorkflowClass(rosterClassSelect, true);
-    if (!selectedClass) return;
-
-    if (uploadClassListButton) uploadClassListButton.disabled = true;
-    setRosterStatus("⏳ Reading the Class List…");
-    try {
-        const data = new Uint8Array(await file.arrayBuffer());
-        const workbook = XLSX.read(data, { type: "array" });
-        const sheetName = workbook.SheetNames[0];
-        if (!sheetName) throw new Error("No worksheet was found in the uploaded file.");
-        const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: "" });
-        const cleanRows = rows.map(function (row) {
-            return {
-                admission_no: String(row["Admission No"] || row["Adm No"] || "").trim(),
-                student_name: cleanStudentName(row["Student Name"]),
-                gender: String(row["Gender"] || "").trim(),
-                class_name: cleanStudentName(row["Class"] || selectedClass),
-                house: String(row["House"] || "").trim(),
-                term: String(row["Term"] || "").trim(),
-                session: String(row["Session"] || "").trim()
-            };
-        }).filter(function (row) { return row.student_name !== ""; });
-
-        if (!cleanRows.length) throw new Error("No student names were found. Please fill the Student Name column.");
-        const wrongClass = cleanRows.find(function (row) { return row.class_name && normalizeClassKey(row.class_name) !== normalizeClassKey(selectedClass); });
-        if (wrongClass) throw new Error("The uploaded file contains a different class (" + wrongClass.class_name + "). Please upload the template for " + selectedClass + ".");
-
-        const seen = new Set();
-        for (const row of cleanRows) {
-            const key = rosterKey(row.admission_no, row.student_name);
-            if (seen.has(key)) throw new Error("Duplicate student found: " + row.student_name + ".");
-            seen.add(key);
-        }
-
-        const payload = cleanRows.map(function (row) {
-            return {
-                owner_user_id: currentUserId,
-                website_id: WEBSITE_ID,
-                class_name: selectedClass,
-                admission_no: row.admission_no,
-                student_name: row.student_name,
-                gender: row.gender,
-                house: row.house,
-                term: row.term,
-                session: row.session,
-                match_key: rosterKey(row.admission_no, row.student_name)
-            };
-        });
-
-        setRosterStatus("⏳ Saving " + payload.length + " student(s) to Supabase…");
-        const { error: deleteError } = await supabaseClient.from(CLASS_ROSTER_TABLE)
-            .delete().eq("owner_user_id", currentUserId).eq("website_id", WEBSITE_ID).eq("class_name", selectedClass);
-        if (deleteError) throw deleteError;
-
-        const { error: insertError } = await supabaseClient.from(CLASS_ROSTER_TABLE).insert(payload);
-        if (insertError) throw insertError;
-
-        classRoster = await fetchClassRoster(selectedClass);
-        syncWorkflowClassSelectors(selectedClass, rosterClassSelect);
-        setRosterStatus("✅ " + classRoster.length + " student(s) uploaded and saved for " + selectedClass + ". The list is now available to Step 1B and Step 1C.");
-        /* Keep the selected filename visible after success. */
-        if (uploadClassListButton) uploadClassListButton.disabled = false;
-    } catch (error) {
-        console.error("Class list upload error:", error);
-        setRosterStatus("❌ " + (error.message || "Could not upload the Class List."), true);
-    } finally {
-        if (uploadClassListButton) uploadClassListButton.disabled = false;
-    }
-}
-
-function handleClassListFileSelected(event) {
-    const file = event && event.target ? event.target.files[0] : null;
-    if (!file) {
-        setRosterStatus("");
-        return;
     }
 
-    setRosterStatus(
-        "📄 Selected: " + file.name + ". Click \"Upload Class List\" to save it."
-    );
 }
 
 async function handleClassListUploadButton() {
+
     const file = classListFileInput && classListFileInput.files
         ? classListFileInput.files[0]
         : null;
@@ -4568,7 +4651,967 @@ async function handleClassListUploadButton() {
     }
 
     await uploadClassListToDatabase(file);
+
 }
+
+async function uploadClassListToDatabase(file) {
+
+    if (typeof XLSX === "undefined") {
+        setRosterStatus("❌ Excel library has not loaded. Please refresh the page.", true);
+        return;
+    }
+
+    if (!currentUserId) {
+        setRosterStatus("❌ Please sign in before uploading the class list.", true);
+        return;
+    }
+
+    const context = getWorkflowContext(true);
+    if (!context) return;
+
+    if (uploadClassListButton) uploadClassListButton.disabled = true;
+    setRosterStatus("⏳ Reading the Class List…");
+
+    try {
+
+        const workbook = XLSX.read(new Uint8Array(await file.arrayBuffer()), { type: "array" });
+        const sheetName = workbook.Sheets["Class List"]
+            ? "Class List"
+            : workbook.SheetNames.find(function (name) { return name !== "Meta"; });
+
+        if (!sheetName) throw new Error("No worksheet was found in the uploaded file.");
+
+        const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: "" });
+
+        const pick = function (row, names) {
+            for (const key of Object.keys(row)) {
+                const simple = key.toLowerCase().replace(/[^a-z]/g, "");
+                if (names.indexOf(simple) !== -1) return row[key];
+            }
+            return "";
+        };
+
+        const students = [];
+        const seenKeys = new Set();
+        const seenAdmissions = new Set();
+
+        rows.forEach(function (row, index) {
+
+            const name = cleanStudentName(pick(row, ["studentname", "name", "fullname"]));
+            const admission = String(pick(row, ["admissionno", "admno", "admissionnumber"]) ?? "").trim();
+            const rowClass = cleanStudentName(pick(row, ["class"]));
+            const rowSession = String(pick(row, ["session"]) ?? "").trim();
+
+            if (!name && !admission) return;
+
+            if (!name) {
+                throw new Error("Row " + (index + 2) + " has an Admission No but no Student Name.");
+            }
+
+            if (rowClass && normalizeClassKey(rowClass) !== normalizeClassKey(context.className)) {
+                throw new Error(
+                    "This file is for a different class (" + rowClass + "). " +
+                    "Please upload the template for " + context.className + "."
+                );
+            }
+
+            if (rowSession && rowSession !== context.session) {
+                throw new Error(
+                    "This file is for session " + rowSession + " but " + context.session +
+                    " is selected. Change the session or download a new template."
+                );
+            }
+
+            const key = rosterKey(admission, name);
+
+            if (seenKeys.has(key)) {
+                throw new Error(
+                    "\"" + name + "\" appears twice" +
+                    (admission ? "." : " - add an Admission No to tell them apart.")
+                );
+            }
+
+            const admKey = normalizeStudentAdmissionNo(admission);
+
+            if (admKey && seenAdmissions.has(admKey)) {
+                throw new Error("Admission No \"" + admission + "\" is used by two students.");
+            }
+
+            seenKeys.add(key);
+            if (admKey) seenAdmissions.add(admKey);
+
+            students.push({
+                admission_no: admission,
+                student_name: name,
+                gender: String(pick(row, ["gender", "sex"]) ?? "").trim(),
+                house: String(pick(row, ["house"]) ?? "").trim()
+            });
+
+        });
+
+        if (students.length === 0) {
+            throw new Error("No student names were found. Please fill the Student Name column.");
+        }
+
+        if (students.length > TEMPLATE_STUDENT_ROWS) {
+            throw new Error(
+                "A class can have at most " + TEMPLATE_STUDENT_ROWS +
+                " students (this file has " + students.length + ")."
+            );
+        }
+
+        const existing = await fetchClassRoster(context.className, context.session);
+        const newKeys = new Set(students.map(function (s) { return rosterKey(s.admission_no, s.student_name); }));
+
+        const removed = existing.filter(function (s) {
+            return !newKeys.has(rosterKey(s.admission_no, s.student_name));
+        });
+
+        if (
+            removed.length > 0 &&
+            !confirm(
+                removed.length + " student(s) on the saved list for " +
+                contextLabel(context, false) + " are not in this file and will be removed " +
+                "from the list (their saved scores are not deleted).\n\nContinue?"
+            )
+        ) {
+            setRosterStatus("Upload cancelled. The saved class list was not changed.");
+            return;
+        }
+
+        setRosterStatus("⏳ Saving " + students.length + " student(s)…");
+
+        const now = new Date().toISOString();
+
+        const payload = students.map(function (student, index) {
+            return {
+                owner_user_id: currentUserId,
+                website_id: WEBSITE_ID,
+                class_name: context.className,
+                session: context.session,
+                admission_no: student.admission_no,
+                student_name: student.student_name,
+                gender: student.gender,
+                house: student.house,
+                match_key: rosterKey(student.admission_no, student.student_name),
+                sort_order: index,
+                updated_at: now
+            };
+        });
+
+        const { error: saveError } = await supabaseClient
+            .from(CLASS_ROSTER_TABLE)
+            .upsert(payload, {
+                onConflict: "owner_user_id,website_id,class_name,session,match_key"
+            });
+
+        if (saveError) throw new Error(saveError.message || "Could not save the class list.");
+
+        const removedKeys = removed.map(function (s) { return rosterKey(s.admission_no, s.student_name); });
+
+        for (let i = 0; i < removedKeys.length; i += 100) {
+
+            const { error: deleteError } = await supabaseClient
+                .from(CLASS_ROSTER_TABLE)
+                .delete()
+                .eq("owner_user_id", currentUserId)
+                .eq("website_id", WEBSITE_ID)
+                .eq("class_name", context.className)
+                .eq("session", context.session)
+                .in("match_key", removedKeys.slice(i, i + 100));
+
+            if (deleteError) throw new Error(deleteError.message || "Could not remove old names.");
+
+        }
+
+        classRoster = await fetchClassRoster(context.className, context.session);
+        renderStudentPreview();
+
+        setRosterStatus(
+            "✅ " + students.length + " student(s) uploaded and saved for " +
+            contextLabel(context, false) +
+            ". They now appear automatically in Step 1B and Step 1C."
+        );
+
+    } catch (error) {
+
+        console.error("Class list upload error:", error);
+        setRosterStatus("❌ " + (error.message || "Could not upload the Class List."), true);
+
+    } finally {
+
+        if (uploadClassListButton) uploadClassListButton.disabled = false;
+
+    }
+
+}
+
+/* Warn a subject teacher when uploaded rows are not in the class list. */
+function describeRosterMismatch(roster, rows) {
+
+    if (!roster || roster.length === 0) return "";
+
+    const keys = new Set(roster.map(function (s) { return rosterKey(s.admission_no, s.student_name); }));
+    const admissions = new Set(
+        roster.map(function (s) { return normalizeStudentAdmissionNo(s.admission_no); }).filter(Boolean)
+    );
+    const names = new Set(roster.map(function (s) { return normalizeStudentName(s.student_name); }));
+
+    const unmatched = [];
+
+    rows.forEach(function (row) {
+
+        const admission = String(row["Adm No"] ?? "").trim();
+        const name = cleanStudentName(row["Student Name"]);
+
+        if (!admission && !name) return;
+
+        const matched =
+            keys.has(computeMatchKey(admission, name)) ||
+            (admission && admissions.has(normalizeStudentAdmissionNo(admission))) ||
+            (!admission && names.has(normalizeStudentName(name)));
+
+        if (!matched) unmatched.push(name || admission);
+
+    });
+
+    if (unmatched.length === 0) return "";
+
+    return (
+        " ⚠ " + unmatched.length + " row(s) are not in the class list (" +
+        unmatched.slice(0, 5).join(", ") + (unmatched.length > 5 ? ", …" : "") +
+        "). Check the spelling or Adm No."
+    );
+
+}
+
+
+/* =========================================================
+   AUTOMATIC COMMENTS
+
+   Class Teacher's and Principal's comments are chosen from the
+   student's AVERAGE, using the same A-F boundaries as the report's
+   grading. Several comments per band are kept so a whole class does
+   not receive the identical sentence; the one used for a given
+   student is fixed (derived from Adm No / name), so regenerating a
+   report never changes it. A comment typed in the Scores sheet
+   always wins. Comments are kept short to fit the report boxes.
+   ========================================================= */
+const COMMENT_GRADES = ["A", "B", "C", "D", "E", "F"];
+
+const DEFAULT_COMMENT_BANK = {
+
+    teacher: {
+        A: [
+            "An outstanding result. Keep up this excellent work and remain focused.",
+            "Excellent performance across the subjects. Continue to aim high.",
+            "A brilliant showing this term. Maintain this commendable standard.",
+            "Impressive results. Your dedication and hard work are clearly paying off."
+        ],
+        B: [
+            "A very good result. With a little more effort, you can reach the top.",
+            "Good performance overall. Keep working hard and aim even higher.",
+            "Commendable effort this term. Stay consistent and keep improving.",
+            "A good result. Focus on your weaker subjects to do even better."
+        ],
+        C: [
+            "A fair performance. More effort and consistent study will bring improvement.",
+            "Average result. You can do better with more concentration and practice.",
+            "Satisfactory work, but there is room for improvement. Study harder.",
+            "A decent effort. Pay closer attention in class and revise regularly."
+        ],
+        D: [
+            "A weak performance. You need to study harder and seek help where necessary.",
+            "Below average result. Greater effort and regular revision are needed.",
+            "Improvement is needed. Attend classes regularly and do all assignments.",
+            "A poor showing this term. More seriousness and dedication are required."
+        ],
+        E: [
+            "A marginal pass. Much more effort is needed to improve.",
+            "Performance is below expectation. Serious improvement is required.",
+            "A weak result. Regular study and extra help are strongly advised."
+        ],
+        F: [
+            "A very poor result. Urgent and serious improvement is required.",
+            "Performance is far below the expected standard. Extra support is advised.",
+            "Much work is needed. Parents should closely monitor study at home."
+        ]
+    },
+
+    principal: {
+        A: [
+            "Excellent result. Keep flying the school's flag high.",
+            "Outstanding performance. The school is proud of you; keep it up.",
+            "A remarkable achievement. Continue to be a role model to others."
+        ],
+        B: [
+            "A very good result. Keep striving for excellence.",
+            "Good performance. Continue to work hard and aim higher.",
+            "Commendable result. Keep up the effort."
+        ],
+        C: [
+            "A fair result. You can do better; work harder next term.",
+            "Average performance. Greater effort is expected of you.",
+            "Satisfactory, but you are capable of much more. Put in more effort."
+        ],
+        D: [
+            "A weak result. Serious effort is needed to improve next term.",
+            "Below average. You are advised to work much harder.",
+            "Not encouraging. Improve your study habits without delay."
+        ],
+        E: [
+            "A marginal pass. Serious improvement is expected next term.",
+            "A poor result. You must sit up and work much harder.",
+            "Weak performance. Please work harder; the school will support you."
+        ],
+        F: [
+            "A very poor result. Parents are advised to meet the class teacher.",
+            "Urgent improvement is required. Please see the school management.",
+            "Far below standard. Much greater seriousness is required next term."
+        ]
+    }
+
+};
+
+/* Saved settings + defaults. A band left empty falls back to the default. */
+function getCommentBank() {
+
+    const saved = reportSettings && reportSettings.commentBank
+        ? reportSettings.commentBank
+        : null;
+
+    const bank = {
+        enabled: !(saved && saved.enabled === false),
+        teacher: {},
+        principal: {}
+    };
+
+    ["teacher", "principal"].forEach(function (kind) {
+
+        COMMENT_GRADES.forEach(function (grade) {
+
+            const custom =
+                saved && saved[kind] && Array.isArray(saved[kind][grade])
+                    ? saved[kind][grade]
+                        .map(function (line) { return String(line).trim(); })
+                        .filter(Boolean)
+                    : [];
+
+            bank[kind][grade] = custom.length > 0
+                ? custom
+                : DEFAULT_COMMENT_BANK[kind][grade].slice();
+
+        });
+
+    });
+
+    return bank;
+
+}
+
+function studentHasAnyScore(student) {
+
+    return schoolSubjects.some(function (subject) {
+        return ["1st CA", "2nd CA", "Exams"].some(function (part) {
+            return String(student[subject + " " + part] ?? "").trim() !== "";
+        });
+    });
+
+}
+
+function getAutoCommentsForStudent(student) {
+
+    const bank = getCommentBank();
+
+    if (!bank.enabled || !studentHasAnyScore(student)) return null;
+
+    const grade = getGrade(calculateStudentAverage(student));
+
+    const seed =
+        String(student["Admission No"] ?? "").trim() + "|" +
+        cleanStudentName(student["Student Name"]);
+
+    const pick = function (list, salt) {
+        return list[parseInt(simpleHash(seed + salt), 16) % list.length];
+    };
+
+    return {
+        teacher: pick(bank.teacher[grade], "|t"),
+        principal: pick(bank.principal[grade], "|p")
+    };
+
+}
+
+/* Fills blank comments (and refreshes ones this function filled before).
+   Comments typed by a teacher are never touched. Returns how many
+   students received at least one automatic comment. */
+function applyAutoCommentsToStudents(list) {
+
+    let touched = 0;
+
+    (list || []).forEach(function (student) {
+
+        if (!student) return;
+
+        if (!student.__behavior) student.__behavior = {};
+
+        const flags = student.__autoComment || {};
+        const auto = getAutoCommentsForStudent(student);
+        let changed = false;
+
+        [
+            ["Class Teacher's Comment", "teacher"],
+            ["Principal's Comment", "principal"]
+        ].forEach(function (pair) {
+
+            const field = pair[0];
+            const kind = pair[1];
+            const current = String(student.__behavior[field] ?? "").trim();
+
+            /* A teacher-typed comment always wins. */
+            if (current !== "" && !flags[kind]) return;
+
+            if (!auto) {
+                if (flags[kind]) {
+                    student.__behavior[field] = "";
+                    flags[kind] = false;
+                }
+                return;
+            }
+
+            student.__behavior[field] = auto[kind];
+            flags[kind] = true;
+            changed = true;
+
+        });
+
+        student.__autoComment = flags;
+
+        if (changed) touched++;
+
+    });
+
+    return touched;
+
+}
+
+/* Settings card: on/off switch + editable comments per grade band. */
+function createAutoCommentManager() {
+
+    if (document.getElementById("autoCommentManager")) return;
+
+    const card = document.createElement("section");
+    card.id = "autoCommentManager";
+    card.className = "card";
+
+    card.innerHTML = `
+        <h2>Automatic Comments</h2>
+        <p>
+            Blank Class Teacher's and Principal's comments are filled in from each
+            student's average when the completed template is uploaded in Step 2.
+            Anything typed in the sheet is kept.
+        </p>
+        <label>
+            <input type="checkbox" id="autoCommentEnabled">
+            Fill blank comments automatically
+        </label>
+        <details style="margin-top:10px;">
+            <summary>Customise the comments</summary>
+            <div style="margin-top:10px;">
+                <label for="autoCommentGrade">Grade band</label>
+                <select id="autoCommentGrade">
+                    ${COMMENT_GRADES.map(function (grade) {
+                        return `<option value="${grade}">Grade ${grade}</option>`;
+                    }).join("")}
+                </select>
+                <span id="autoCommentRange"></span>
+            </div>
+            <div style="margin-top:10px;">
+                <label for="autoCommentTeacher">Class Teacher's comments (one per line)</label>
+                <textarea id="autoCommentTeacher" rows="5" style="width:100%;"></textarea>
+            </div>
+            <div style="margin-top:10px;">
+                <label for="autoCommentPrincipal">Principal's comments (one per line)</label>
+                <textarea id="autoCommentPrincipal" rows="5" style="width:100%;"></textarea>
+            </div>
+            <p id="autoCommentLength"></p>
+            <div>
+                <button type="button" id="autoCommentSave">Save comments</button>
+                <button type="button" id="autoCommentReset">Reset to defaults</button>
+            </div>
+        </details>
+        <p id="autoCommentStatus"></p>
+    `;
+
+    const step2Card = elementExists(excelFileInput) ? excelFileInput.closest(".card") : null;
+
+    if (step2Card && step2Card.parentNode) {
+        step2Card.parentNode.insertBefore(card, step2Card);
+    } else if (elementExists(downloadTemplateButton) && downloadTemplateButton.parentNode) {
+        downloadTemplateButton.parentNode.appendChild(card);
+    } else {
+        document.body.appendChild(card);
+    }
+
+    const enabledBox = document.getElementById("autoCommentEnabled");
+    const gradeSelect = document.getElementById("autoCommentGrade");
+    const rangeLabel = document.getElementById("autoCommentRange");
+    const teacherBox = document.getElementById("autoCommentTeacher");
+    const principalBox = document.getElementById("autoCommentPrincipal");
+    const lengthLabel = document.getElementById("autoCommentLength");
+    const statusLabel = document.getElementById("autoCommentStatus");
+
+    const MAX_RECOMMENDED = 140;
+
+    /* Working copy of the bank; only written to settings on Save. */
+    let draft = getCommentBank();
+    let shownGrade = gradeSelect.value;
+
+    function splitLines(text) {
+        return String(text || "")
+            .split("\n")
+            .map(function (line) { return line.trim(); })
+            .filter(Boolean);
+    }
+
+    function gradeRangeText(grade) {
+        const s = reportSettings;
+        const ranges = {
+            A: "average " + s.gradeA + " and above",
+            B: "average " + s.gradeB + " to below " + s.gradeA,
+            C: "average " + s.gradeC + " to below " + s.gradeB,
+            D: "average " + s.gradeD + " to below " + s.gradeC,
+            E: "average " + s.gradeE + " to below " + s.gradeD,
+            F: "average below " + s.gradeE
+        };
+        return " (" + ranges[grade] + ")";
+    }
+
+    function storeShownGrade() {
+        const teacher = splitLines(teacherBox.value);
+        const principal = splitLines(principalBox.value);
+        draft.teacher[shownGrade] = teacher.length ? teacher : DEFAULT_COMMENT_BANK.teacher[shownGrade].slice();
+        draft.principal[shownGrade] = principal.length ? principal : DEFAULT_COMMENT_BANK.principal[shownGrade].slice();
+    }
+
+    function updateLengthNote() {
+        const longest = splitLines(teacherBox.value + "\n" + principalBox.value)
+            .reduce(function (max, line) { return Math.max(max, line.length); }, 0);
+        lengthLabel.textContent =
+            "Longest line: " + longest + " characters" +
+            (longest > MAX_RECOMMENDED
+                ? " - long comments may not fit the report's comment boxes (aim for " +
+                  MAX_RECOMMENDED + " or fewer)."
+                : " (aim for " + MAX_RECOMMENDED + " or fewer to fit the report).");
+    }
+
+    function showGrade() {
+        shownGrade = gradeSelect.value;
+        teacherBox.value = draft.teacher[shownGrade].join("\n");
+        principalBox.value = draft.principal[shownGrade].join("\n");
+        rangeLabel.textContent = gradeRangeText(shownGrade);
+        updateLengthNote();
+    }
+
+    function persist() {
+        reportSettings.commentBank = {
+            enabled: enabledBox.checked,
+            teacher: draft.teacher,
+            principal: draft.principal
+        };
+        const updated = applyAutoCommentsToStudents(students);
+        saveAppData();
+        return updated;
+    }
+
+    enabledBox.checked = draft.enabled;
+    showGrade();
+
+    enabledBox.addEventListener("change", function () {
+        storeShownGrade();
+        persist();
+        statusLabel.textContent = enabledBox.checked
+            ? "✅ Automatic comments are on."
+            : "Automatic comments are off. Comments typed in the sheet are still used.";
+    });
+
+    /* Store what was typed for the band being left, then show the new band. */
+    gradeSelect.addEventListener("change", function () {
+        storeShownGrade();
+        showGrade();
+    });
+
+    teacherBox.addEventListener("input", updateLengthNote);
+    principalBox.addEventListener("input", updateLengthNote);
+
+    document.getElementById("autoCommentSave").addEventListener("click", function () {
+        storeShownGrade();
+        const updated = persist();
+        showGrade();
+        statusLabel.textContent =
+            "✅ Comments saved." +
+            (updated > 0
+                ? " Regenerate the reports to see the new comments on " + updated + " student(s)."
+                : "");
+    });
+
+    document.getElementById("autoCommentReset").addEventListener("click", function () {
+        if (!confirm("Reset all automatic comments to the built-in defaults?")) return;
+        draft = { enabled: enabledBox.checked, teacher: {}, principal: {} };
+        COMMENT_GRADES.forEach(function (grade) {
+            draft.teacher[grade] = DEFAULT_COMMENT_BANK.teacher[grade].slice();
+            draft.principal[grade] = DEFAULT_COMMENT_BANK.principal[grade].slice();
+        });
+        persist();
+        showGrade();
+        statusLabel.textContent = "✅ Comments reset to the defaults.";
+    });
+
+}
+
+
+/* =========================================================
+   ANNUAL / CUMULATIVE PERFORMANCE
+
+   Reads every term's saved subject scores for the selected
+   Class + Session and shows, per student:
+       Subject | First | Second | Third | Cumulative
+   A term's subject total is 1st CA + 2nd CA + Exams. Cumulative is
+   the average of the terms that have a score (so it is already
+   meaningful after two terms).
+   ========================================================= */
+function formatCumulativeNumber(value) {
+    if (value === null || value === undefined || Number.isNaN(value)) return "–";
+    return String(Math.round(value * 10) / 10);
+}
+
+function averageOf(values) {
+    const present = values.filter(function (v) { return v !== null && v !== undefined; });
+    if (present.length === 0) return null;
+    return present.reduce(function (sum, v) { return sum + v; }, 0) / present.length;
+}
+
+function resetCumulativeView() {
+
+    cumulativeModel = null;
+
+    if (elementExists(cumulativeResult)) cumulativeResult.innerHTML = "";
+    if (elementExists(cumulativeStatus)) cumulativeStatus.textContent = "";
+
+    if (elementExists(cumulativeStudentSelect)) {
+        cumulativeStudentSelect.innerHTML = "";
+        cumulativeStudentSelect.style.display = "none";
+    }
+
+}
+
+async function buildCumulativeModel(context) {
+
+    const { data, error } = await supabaseClient
+        .from(SUBJECT_SCORES_TABLE)
+        .select("subject, term, admission_no, student_name, first_ca, second_ca, exams")
+        .eq("user_id", currentUserId)
+        .eq("website_id", WEBSITE_ID)
+        .eq("class_name", context.className)
+        .eq("session", context.session);
+
+    if (error) throw new Error(error.message || "Could not load the saved scores.");
+
+    const roster = await fetchClassRoster(context.className, context.session);
+
+    const studentMap = new Map();
+    const subjectOrder = [];
+
+    const identity = function (admission, name) {
+        const adm = normalizeStudentAdmissionNo(admission);
+        return adm ? "adm:" + adm : "name:" + normalizeStudentName(name);
+    };
+
+    /* Class-list order first, so the report follows the register. */
+    roster.forEach(function (student) {
+        studentMap.set(identity(student.admission_no, student.student_name), {
+            admission_no: student.admission_no,
+            student_name: student.student_name,
+            gender: student.gender || "",
+            house: student.house || "",
+            scores: {}
+        });
+    });
+
+    schoolSubjects.forEach(function (subject) {
+        if (subjectOrder.indexOf(subject) === -1) subjectOrder.push(subject);
+    });
+
+    (data || []).forEach(function (row) {
+
+        const parts = [row.first_ca, row.second_ca, row.exams].filter(function (v) {
+            return v !== null && v !== undefined && v !== "";
+        });
+
+        if (parts.length === 0) return;
+
+        const total = parts.reduce(function (sum, v) { return sum + Number(v); }, 0);
+
+        let key = identity(row.admission_no, row.student_name);
+
+        /* A score saved before an Adm No was added still belongs to the same student. */
+        if (!studentMap.has(key)) {
+            const byName = "name:" + normalizeStudentName(row.student_name);
+            if (studentMap.has(byName)) key = byName;
+        }
+
+        if (!studentMap.has(key)) {
+            studentMap.set(key, {
+                admission_no: row.admission_no || "",
+                student_name: cleanStudentName(row.student_name),
+                gender: "",
+                house: "",
+                scores: {}
+            });
+        }
+
+        if (subjectOrder.indexOf(row.subject) === -1) subjectOrder.push(row.subject);
+
+        const student = studentMap.get(key);
+        if (!student.scores[row.subject]) student.scores[row.subject] = {};
+        student.scores[row.subject][row.term] = total;
+
+    });
+
+    const students = Array.from(studentMap.values()).filter(function (student) {
+        return Object.keys(student.scores).length > 0;
+    });
+
+    students.forEach(function (student) {
+
+        student.subjectRows = subjectOrder
+            .filter(function (subject) { return student.scores[subject]; })
+            .map(function (subject) {
+                const terms = ACADEMIC_TERMS.map(function (term) {
+                    const value = student.scores[subject][term];
+                    return value === undefined ? null : value;
+                });
+                return { subject: subject, terms: terms, cumulative: averageOf(terms) };
+            });
+
+        student.termAverages = ACADEMIC_TERMS.map(function (term, index) {
+            return averageOf(student.subjectRows.map(function (r) { return r.terms[index]; }));
+        });
+
+        student.cumulativeAverage = averageOf(
+            student.subjectRows.map(function (r) { return r.cumulative; })
+        );
+
+    });
+
+    /* Position by cumulative average (ties share a position). */
+    const ranked = students.slice().sort(function (a, b) {
+        return (b.cumulativeAverage ?? -1) - (a.cumulativeAverage ?? -1);
+    });
+
+    ranked.forEach(function (student, index) {
+        const previous = ranked[index - 1];
+        student.position =
+            previous && previous.cumulativeAverage === student.cumulativeAverage
+                ? previous.position
+                : index + 1;
+    });
+
+    return { context: context, subjects: subjectOrder, students: students, ranked: ranked };
+
+}
+
+async function showCumulativePerformance() {
+
+    const context = getWorkflowContext(false);
+
+    if (!context.className || !context.session) {
+        alert("Please select the Academic Session and Class in Step 1A first.");
+        return;
+    }
+
+    if (!currentUserId) {
+        cumulativeStatus.textContent = "❌ Please sign in first.";
+        return;
+    }
+
+    cumulativeStatus.textContent = "⏳ Loading all terms…";
+
+    try {
+
+        cumulativeModel = await buildCumulativeModel(context);
+
+        if (cumulativeModel.students.length === 0) {
+            cumulativeResult.innerHTML = "";
+            cumulativeStudentSelect.style.display = "none";
+            cumulativeStatus.textContent =
+                "No saved scores found for " + contextLabel(context, false) +
+                ". Scores appear here after subject teachers upload their Step 1B templates.";
+            return;
+        }
+
+        cumulativeStudentSelect.innerHTML = "<option value=\"\">-- Whole class summary --</option>";
+
+        cumulativeModel.students.forEach(function (student, index) {
+            const option = document.createElement("option");
+            option.value = String(index);
+            option.textContent = student.student_name;
+            cumulativeStudentSelect.appendChild(option);
+        });
+
+        cumulativeStudentSelect.style.display = "block";
+        cumulativeStatus.textContent =
+            "✅ " + cumulativeModel.students.length + " student(s) with saved scores for " +
+            contextLabel(context, false) + ".";
+
+        renderCumulativeStudent();
+
+    } catch (error) {
+
+        console.error("Cumulative performance error:", error);
+        cumulativeStatus.textContent = "❌ " + (error.message || "Could not load cumulative data.");
+
+    }
+
+}
+
+function renderCumulativeStudent() {
+
+    if (!cumulativeModel || !elementExists(cumulativeResult)) return;
+
+    const cell = "border:1px solid #ccc;padding:6px;text-align:center;";
+    const head = cell + "background:#f0f0f0;";
+    const left = "border:1px solid #ccc;padding:6px;text-align:left;";
+    const table = "border-collapse:collapse;width:100%;margin-top:10px;";
+
+    const selected = cumulativeStudentSelect.value;
+
+    if (selected === "") {
+
+        let html =
+            "<table style=\"" + table + "\"><tr>" +
+            "<th style=\"" + head + "\">Position</th>" +
+            "<th style=\"" + head + "\">Student</th>" +
+            "<th style=\"" + head + "\">First</th>" +
+            "<th style=\"" + head + "\">Second</th>" +
+            "<th style=\"" + head + "\">Third</th>" +
+            "<th style=\"" + head + "\">Cumulative</th></tr>";
+
+        cumulativeModel.ranked.forEach(function (student) {
+            html +=
+                "<tr><td style=\"" + cell + "\">" + student.position + "</td>" +
+                "<td style=\"" + left + "\">" + escapeHTML(student.student_name) + "</td>" +
+                student.termAverages.map(function (avg) {
+                    return "<td style=\"" + cell + "\">" + formatCumulativeNumber(avg) + "</td>";
+                }).join("") +
+                "<td style=\"" + cell + "font-weight:700;\">" +
+                formatCumulativeNumber(student.cumulativeAverage) + "</td></tr>";
+        });
+
+        cumulativeResult.innerHTML = html + "</table>";
+        return;
+
+    }
+
+    const student = cumulativeModel.students[Number(selected)];
+    if (!student) return;
+
+    let html =
+        "<p><strong>" + escapeHTML(student.student_name) + "</strong> &mdash; " +
+        escapeHTML(contextLabel(cumulativeModel.context, false)) +
+        " &mdash; Position " + student.position + " of " + cumulativeModel.students.length + "</p>" +
+        "<table style=\"" + table + "\"><tr>" +
+        "<th style=\"" + head + "\">Subject</th>" +
+        "<th style=\"" + head + "\">First</th>" +
+        "<th style=\"" + head + "\">Second</th>" +
+        "<th style=\"" + head + "\">Third</th>" +
+        "<th style=\"" + head + "\">Cumulative</th></tr>";
+
+    student.subjectRows.forEach(function (row) {
+        html +=
+            "<tr><td style=\"" + left + "\">" + escapeHTML(row.subject) + "</td>" +
+            row.terms.map(function (value) {
+                return "<td style=\"" + cell + "\">" + formatCumulativeNumber(value) + "</td>";
+            }).join("") +
+            "<td style=\"" + cell + "font-weight:700;\">" + formatCumulativeNumber(row.cumulative) + "</td></tr>";
+    });
+
+    html +=
+        "<tr><td style=\"" + left + "font-weight:700;\">Average</td>" +
+        student.termAverages.map(function (avg) {
+            return "<td style=\"" + cell + "font-weight:700;\">" + formatCumulativeNumber(avg) + "</td>";
+        }).join("") +
+        "<td style=\"" + cell + "font-weight:700;\">" + formatCumulativeNumber(student.cumulativeAverage) + "</td></tr>";
+
+    cumulativeResult.innerHTML = html + "</table>";
+
+}
+
+async function downloadCumulativeWorkbook() {
+
+    if (typeof XLSX === "undefined") {
+        alert("Excel library has not loaded. Please refresh the page.");
+        return;
+    }
+
+    if (!cumulativeModel) {
+        await showCumulativePerformance();
+        if (!cumulativeModel) return;
+    }
+
+    const model = cumulativeModel;
+
+    const header = ["Position", "Adm No", "Student Name"];
+
+    model.subjects.forEach(function (subject) {
+        header.push(subject + " First", subject + " Second", subject + " Third", subject + " Cumulative");
+    });
+
+    header.push("First Avg", "Second Avg", "Third Avg", "Cumulative Avg");
+
+    const data = [header];
+
+    model.ranked.forEach(function (student) {
+
+        const row = [student.position, student.admission_no, student.student_name];
+
+        model.subjects.forEach(function (subject) {
+            const found = student.subjectRows.find(function (r) { return r.subject === subject; });
+            if (found) {
+                found.terms.forEach(function (value) {
+                    row.push(value === null ? "" : Math.round(value * 10) / 10);
+                });
+                row.push(found.cumulative === null ? "" : Math.round(found.cumulative * 10) / 10);
+            } else {
+                row.push("", "", "", "");
+            }
+        });
+
+        student.termAverages.forEach(function (avg) {
+            row.push(avg === null ? "" : Math.round(avg * 10) / 10);
+        });
+
+        row.push(student.cumulativeAverage === null ? "" : Math.round(student.cumulativeAverage * 10) / 10);
+
+        data.push(row);
+
+    });
+
+    const sheet = XLSX.utils.aoa_to_sheet(data);
+    sheet["!freeze"] = { xSplit: 3, ySplit: 1 };
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, sheet, "Cumulative");
+
+    downloadWorkbook(
+        workbook,
+        safeFilePart(model.context.className) + "_" + safeFilePart(model.context.session) +
+        "_Cumulative_Performance.xlsx"
+    );
+
+}
+
+
 
 /* =========================================================
    SUBJECT TEMPLATE SELECT (Step 1B dropdown)
@@ -4770,14 +5813,6 @@ async function fetchSchoolClasses() {
 
     renderClassList();
     populateClassNameSelect();
-    populateWorkflowClassSelectors();
-
-    if (classNameInput && classNameInput.value) {
-        loadClassRosterForSelectedClass();
-    } else {
-        classRoster = [];
-        renderRosterEditor();
-    }
 
 }
 
@@ -4835,6 +5870,7 @@ async function addSchoolClass(rawName) {
 
     if (elementExists(classNameInput)) {
         classNameInput.value = cleaned;
+        onClassContextChanged();
     }
 
     return true;
@@ -4917,6 +5953,419 @@ function populateClassNameSelect() {
         classNameInput.value = previousValue;
     }
 
+    restoreSavedClassSelection();
+    onClassContextChanged();
+
+}
+
+
+
+/* =========================================================
+   CUMULATIVE REPORT SHEETS  (one per student)
+
+   Uses the same look as the term report (same CSS classes), so it
+   prints the same way. Built from every term saved for the
+   selected Class + Session:
+       Subject | First | Second | Third | Cumulative | Grade
+   Cumulative Class Teacher's / Principal's comments come from the
+   Automatic Comments bank, chosen by the student's CUMULATIVE
+   average. Producing these sheets does not use up any report
+   allowance and does not change the term reports.
+   ========================================================= */
+function autoCommentsForCumulative(student) {
+
+    const bank = getCommentBank();
+
+    if (!bank.enabled || student.cumulativeAverage === null) {
+        return { teacher: "", principal: "" };
+    }
+
+    const grade = getGrade(student.cumulativeAverage);
+
+    const seed =
+        String(student.admission_no ?? "").trim() + "|" +
+        cleanStudentName(student.student_name) + "|cumulative";
+
+    const pick = function (list, salt) {
+        return list[parseInt(simpleHash(seed + salt), 16) % list.length];
+    };
+
+    return {
+        teacher: pick(bank.teacher[grade], "|t"),
+        principal: pick(bank.principal[grade], "|p")
+    };
+
+}
+
+function createCumulativeReport(student, model) {
+
+    const context = model.context;
+    const comments = autoCommentsForCumulative(student);
+    const average = student.cumulativeAverage;
+
+    const termsIncluded = ACADEMIC_TERMS
+        .filter(function (term, index) { return student.termAverages[index] !== null; })
+        .map(function (term) { return term.replace(" Term", ""); })
+        .join(", ");
+
+    const subjectRows = student.subjectRows.map(function (row, index) {
+        return `
+            <tr>
+                <td>${index + 1}</td>
+                <td>${escapeHTML(row.subject)}</td>
+                ${row.terms.map(function (value) {
+                    return `<td>${formatCumulativeNumber(value)}</td>`;
+                }).join("")}
+                <td><strong>${formatCumulativeNumber(row.cumulative)}</strong></td>
+                <td>${row.cumulative === null ? "" : getGrade(row.cumulative)}</td>
+            </tr>
+        `;
+    }).join("");
+
+    return `
+        <div class="report cumulative-report">
+
+            <div class="school-header">
+                ${reportSettings.schoolLogo
+                    ? `<div class="school-logo-container">
+                           <img src="${reportSettings.schoolLogo}" alt="School Logo" class="school-logo">
+                       </div>`
+                    : ""}
+                <h1>${escapeHTML(reportSettings.schoolName)}</h1>
+                <p>${escapeHTML(reportSettings.schoolAddress)}</p>
+                <h2>CUMULATIVE (ANNUAL) REPORT SHEET</h2>
+            </div>
+
+            <div class="student-info">
+                <div><strong>Admission No:</strong> ${escapeHTML(student.admission_no || "")}</div>
+                <div><strong>Student Name:</strong> ${escapeHTML(student.student_name || "")}</div>
+                <div><strong>Gender:</strong> ${escapeHTML(student.gender || "")}</div>
+                <div><strong>Class:</strong> ${escapeHTML(context.className)}</div>
+                <div><strong>House:</strong> ${escapeHTML(student.house || "")}</div>
+                <div><strong>Session:</strong> ${escapeHTML(context.session)}</div>
+                <div><strong>Terms Included:</strong> ${escapeHTML(termsIncluded)}</div>
+                <div><strong>Class Size:</strong> ${model.students.length}</div>
+            </div>
+
+            <table class="result-table">
+                <thead>
+                    <tr>
+                        <th>No.</th>
+                        <th>Subject</th>
+                        <th>First<br>Term</th>
+                        <th>Second<br>Term</th>
+                        <th>Third<br>Term</th>
+                        <th>Cumulative</th>
+                        <th>Grade</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${subjectRows}
+                </tbody>
+                <tfoot>
+                    <tr>
+                        <th colspan="2">TERM AVERAGE</th>
+                        ${student.termAverages.map(function (value) {
+                            return `<th>${formatCumulativeNumber(value)}</th>`;
+                        }).join("")}
+                        <th>${formatCumulativeNumber(average)}</th>
+                        <th>${average === null ? "" : getGrade(average)}</th>
+                    </tr>
+                </tfoot>
+            </table>
+
+            <p style="font-size:0.85em; margin:6px 0;">
+                Cumulative is the average of the terms with recorded scores.
+            </p>
+
+            <div class="summary">
+                <p><strong>Cumulative Average</strong> ${formatCumulativeNumber(average)}%</p>
+                <p><strong>Class Position</strong>
+                    <span class="position-value">${formatPosition(student.position)}</span>
+                </p>
+                <p><strong>Overall Grade</strong> ${average === null ? "" : getGrade(average)}</p>
+            </div>
+
+            <div class="comments">
+                <p><strong>Class Teacher's Comment &amp; Signature:</strong></p>
+                <div class="comment-box">${escapeHTML(comments.teacher)}</div>
+                <p><strong>Principal's Comment &amp; Signature:</strong></p>
+                <div class="comment-box">${escapeHTML(comments.principal)}</div>
+            </div>
+
+        </div>
+    `;
+
+}
+
+function getCumulativeReportFingerprint(student, model) {
+
+    const payload = {
+        kind: "cumulative",
+        class_name: model.context.className,
+        session: model.context.session,
+        admission_no: student.admission_no || "",
+        student_name: cleanStudentName(student.student_name),
+        subjects: student.subjectRows.map(function (row) {
+            return [row.subject, row.terms];
+        }),
+        settings: stableValue(reportSettingsForFingerprint()),
+        website: WEBSITE_ID
+    };
+
+    return simpleHash(JSON.stringify(payload));
+
+}
+
+/* mode "one": the student chosen in the dropdown; mode "all": the whole class.
+   Each NEW cumulative report uses one report from the allowance, exactly like a
+   term report. Regenerating the same report (same scores) is free. */
+async function generateCumulativeReports(mode) {
+
+    const context = getWorkflowContext(false);
+
+    if (!context.className || !context.session) {
+        alert("Please select the Academic Session and Class in Step 1A first.");
+        return;
+    }
+
+    if (!currentUserId) {
+        alert("Please sign in first.");
+        return;
+    }
+
+    if (!elementExists(reportContainer)) {
+        alert("The report area was not found on this page.");
+        return;
+    }
+
+    let chosenName = "";
+
+    if (mode === "one") {
+
+        if (
+            !cumulativeModel ||
+            !elementExists(cumulativeStudentSelect) ||
+            cumulativeStudentSelect.value === ""
+        ) {
+            alert("Click \"Show Cumulative Performance\" and choose a student from the list first.");
+            return;
+        }
+
+        const chosen = cumulativeModel.students[Number(cumulativeStudentSelect.value)];
+        chosenName = chosen ? chosen.student_name : "";
+
+    }
+
+    const setStatus = function (message) {
+        if (elementExists(cumulativeStatus)) cumulativeStatus.textContent = message;
+    };
+
+    setStatus("⏳ Preparing cumulative report(s)…");
+
+    try {
+
+        /* Rebuilt from the database so the sheets always show the latest scores. */
+        const model = await buildCumulativeModel(context);
+
+        if (model.students.length === 0) {
+            setStatus(
+                "❌ No saved scores found for " + contextLabel(context, false) +
+                ". Subject teachers must upload their Step 1B templates first."
+            );
+            return;
+        }
+
+        cumulativeModel = model;
+
+        /* Register (class-list) order for the printed batch. */
+        let list = model.students.slice();
+
+        if (mode === "one") {
+            list = list.filter(function (student) {
+                return student.student_name === chosenName;
+            });
+        }
+
+        if (list.length === 0) {
+            setStatus("❌ That student has no saved scores.");
+            return;
+        }
+
+        /* Same allowance ledger as the term reports: a report costs one
+           allowance the first time it is generated, and nothing when the
+           same report (same scores) is generated again. */
+        const items = list.map(function (student) {
+            const fingerprint = getCumulativeReportFingerprint(student, model);
+            return {
+                student: student,
+                fingerprint: fingerprint,
+                alreadyGenerated: hasReportBeenGenerated(fingerprint)
+            };
+        });
+
+        const newItems = items.filter(function (item) { return !item.alreadyGenerated; });
+
+        let toRender = items;
+        let toCharge = [];
+        let blockedNew = false;
+
+        if (newItems.length > 0) {
+
+            if (mode === "one") {
+
+                if (!canGenerateReports(1)) {
+                    setStatus("");
+                    return;
+                }
+
+                toCharge = newItems;
+
+            } else {
+
+                const limit = getReportLimit();
+
+                if (!limit) {
+                    alert("❌ Your subscription plan could not be determined.");
+                    setStatus("");
+                    return;
+                }
+
+                const carriedOver = getCarriedOverReports();
+                const totalAvailable = limit + carriedOver;
+                const remaining = Math.max(totalAvailable - reportsGenerated, 0);
+
+                if (remaining <= 0) {
+                    alert(
+                        "⚠️ REPORT GENERATION LIMIT REACHED\n\n" +
+                        "Subscription: " + getPlanDisplayName() + "\n" +
+                        "Reports generated: " + reportsGenerated + " / " + totalAvailable +
+                        "\n\nPlease renew or upgrade your subscription to generate more reports."
+                    );
+                    updateReportStatus();
+                    setStatus("");
+                    return;
+                }
+
+                toCharge = newItems.slice(0, remaining);
+                blockedNew = newItems.length > toCharge.length;
+
+                const ok = confirm(
+                    "Generate cumulative reports for " + list.length + " student(s)?\n\n" +
+                    "Subscription: " + getPlanDisplayName() + "\n" +
+                    "Reports generated: " + reportsGenerated + " / " + formatReportCount(totalAvailable) + "\n" +
+                    "Carried-over reports: " + carriedOver + "\n" +
+                    "Reports remaining: " + formatReportCount(remaining) +
+                    "\n\nNew reports to be charged: " + toCharge.length +
+                    "\nAlready-generated reports will not use allowance again." +
+                    (blockedNew
+                        ? "\n\n⚠️ Only " + toCharge.length +
+                          " new report(s) fit in the remaining allowance."
+                        : "")
+                );
+
+                if (!ok) {
+                    setStatus("");
+                    return;
+                }
+
+            }
+
+            const chargeSet = new Set(toCharge.map(function (item) { return item.fingerprint; }));
+
+            /* Reports that cannot be afforded are left out, exactly as in Generate All. */
+            toRender = items.filter(function (item) {
+                return item.alreadyGenerated || chargeSet.has(item.fingerprint);
+            });
+
+        }
+
+        /* Build first, charge second - nothing is shown until the server confirms. */
+        const html = toRender.map(function (item) {
+            return createCumulativeReport(item.student, model);
+        });
+
+        if (toCharge.length > 0) {
+
+            const claimed = await incrementReportCount(toCharge.length);
+
+            if (!claimed) {
+                alert(
+                    "⚠️ No new reports were charged because the server could not confirm the allowance claim.\n\n" +
+                    "Please refresh and try again."
+                );
+                updateReportStatus();
+                setStatus("");
+                return;
+            }
+
+            markReportsAsGenerated(toCharge.map(function (item) { return item.fingerprint; }));
+
+        }
+
+        reportContainer.innerHTML = html.join("");
+        saveGeneratedReports();
+        reportContainer.scrollIntoView({ behavior: "smooth" });
+
+        for (let i = 0; i < toCharge.length; i++) {
+            await logReportGenerated({
+                "Admission No": toCharge[i].student.admission_no,
+                "Student Name": toCharge[i].student.student_name,
+                "Session": context.session,
+                "Term": "Cumulative"
+            });
+        }
+
+        updateReportStatus();
+
+        setStatus(
+            "✅ " + toRender.length + " cumulative report(s) generated for " +
+            contextLabel(context, false) + " (" + toCharge.length +
+            " new report(s) charged). Use Print Report below to print or save as PDF."
+        );
+
+        showRosterNotification(
+            "✅ " + toRender.length + " cumulative report(s) generated.",
+            false
+        );
+
+        if (blockedNew) {
+            alert(
+                "⚠️ Generation stopped at your available report limit.\n\n" +
+                "New reports charged: " + toCharge.length + "\n" +
+                "Reports generated: " + reportsGenerated +
+                "\n\nRenew or upgrade to generate the remaining reports."
+            );
+        }
+
+    } catch (error) {
+
+        console.error("Cumulative report error:", error);
+        setStatus("❌ " + (error.message || "Could not generate the cumulative reports."));
+
+    }
+
+}
+
+/* A cumulative report is identified by the student and the scores on it,
+   so regenerating the same sheet is free but new scores make a new report. */
+function getCumulativeReportFingerprint(student, model) {
+
+    const payload = {
+        type: "cumulative",
+        website: WEBSITE_ID,
+        class_name: model.context.className,
+        session: model.context.session,
+        admission_no: String(student.admission_no || "").trim(),
+        student_name: cleanStudentName(student.student_name),
+        rows: student.subjectRows.map(function (row) {
+            return [row.subject, row.terms];
+        }),
+        settings: reportSettingsForFingerprint()
+    };
+
+    return simpleHash(JSON.stringify(stableValue(payload)));
+
 }
 
 
@@ -4938,13 +6387,15 @@ const SUBJECT_SCORES_TABLE = "subject_scores";
    single-subject file, which subject) it belongs to. This is what
    lets an upload know its own class/subject without asking the
    teacher to re-type it. */
-function buildMetaSheet(className, subject) {
+function buildMetaSheet(className, subject, session, term) {
 
     const metaData = [
         ["KEY", "VALUE"],
         ["website_id", WEBSITE_ID],
         ["class_name", className || ""],
         ["subject", subject || ""],
+        ["session", session || ""],
+        ["term", term || ""],
         ["generated_at", new Date().toISOString()]
     ];
 
@@ -4954,9 +6405,9 @@ function buildMetaSheet(className, subject) {
     return metaSheet;
 }
 
-function appendMetaSheet(workbook, className, subject) {
+function appendMetaSheet(workbook, className, subject, session, term) {
 
-    const metaSheet = buildMetaSheet(className, subject);
+    const metaSheet = buildMetaSheet(className, subject, session, term);
 
     XLSX.utils.book_append_sheet(workbook, metaSheet, "Meta");
 
@@ -4970,7 +6421,7 @@ function appendMetaSheet(workbook, className, subject) {
 
 function readMetaFromWorkbook(workbook) {
 
-    const result = { website_id: "", class_name: "", subject: "" };
+    const result = { website_id: "", class_name: "", subject: "", session: "", term: "" };
 
     if (!workbook || !workbook.Sheets || !workbook.Sheets["Meta"]) {
         return result;
@@ -4988,6 +6439,8 @@ function readMetaFromWorkbook(workbook) {
         if (key === "website_id") result.website_id = String(value || "").trim();
         if (key === "class_name") result.class_name = String(value || "").trim();
         if (key === "subject") result.subject = String(value || "").trim();
+        if (key === "session") result.session = String(value || "").trim();
+        if (key === "term") result.term = String(value || "").trim();
     });
 
     return result;
@@ -5022,7 +6475,7 @@ function computeMatchKey(admissionNo, studentName) {
 /* =========================================================
    SAVE ONE SUBJECT'S SCORES TO SUPABASE
    ========================================================= */
-async function saveSubjectScoresToDatabase(className, subject, rows) {
+async function saveSubjectScoresToDatabase(className, subject, rows, session, term) {
 
     if (!currentUserId) {
         throw new Error("You must be signed in to upload a subject template.");
@@ -5040,6 +6493,8 @@ async function saveSubjectScoresToDatabase(className, subject, rows) {
                 user_id: currentUserId,
                 website_id: WEBSITE_ID,
                 class_name: className,
+                session: session || "",
+                term: term || "",
                 subject: subject,
                 admission_no: admissionNo,
                 student_name: studentName,
@@ -5060,7 +6515,7 @@ async function saveSubjectScoresToDatabase(className, subject, rows) {
     const { error } = await supabaseClient
         .from(SUBJECT_SCORES_TABLE)
         .upsert(payloadRows, {
-            onConflict: "user_id,website_id,class_name,subject,match_key"
+            onConflict: "user_id,website_id,class_name,session,term,subject,match_key"
         });
 
     if (error) {
@@ -5077,7 +6532,7 @@ async function saveSubjectScoresToDatabase(className, subject, rows) {
    Returns a map: { [subject]: [ {admission_no, student_name,
    first_ca, second_ca, exams}, ... ] }
    ========================================================= */
-async function fetchAllSavedSubjectScoresForClass(className, subjects) {
+async function fetchAllSavedSubjectScoresForClass(className, subjects, session, term) {
 
     const result = {};
     subjects.forEach(function (subject) { result[subject] = []; });
@@ -5089,7 +6544,9 @@ async function fetchAllSavedSubjectScoresForClass(className, subjects) {
         .select("subject, admission_no, student_name, first_ca, second_ca, exams")
         .eq("user_id", currentUserId)
         .eq("website_id", WEBSITE_ID)
-        .eq("class_name", className);
+        .eq("class_name", className)
+        .eq("session", session || "")
+        .eq("term", term || "");
 
     if (error) {
         console.error("Fetch saved subject scores error:", error);
@@ -5124,9 +6581,10 @@ async function downloadSubjectTemplate() {
             return;
         }
 
-        const className = getSelectedWorkflowClass(subjectClassSelect || classNameInput, true);
-        if (!className) return;
-        syncWorkflowClassSelectors(className, subjectClassSelect || classNameInput);
+        const context = getWorkflowContext(true);
+        if (!context) return;
+
+        const className = context.className;
 
         if (!elementExists(subjectTemplateSelect) || !subjectTemplateSelect.value) {
             alert("Please add and select a subject first.");
@@ -5139,14 +6597,17 @@ async function downloadSubjectTemplate() {
 
         const savedBySubject = await fetchAllSavedSubjectScoresForClass(
             className,
-            [subject]
+            [subject],
+            context.session,
+            context.term
         );
 
         const savedRows = savedBySubject[subject] || [];
-        const roster = await fetchClassRoster(className);
-        const templateRows = roster.length
-            ? mergeRosterIntoSubjectRows(roster, savedRows)
-            : savedRows;
+        const roster = await fetchClassRoster(className, context.session);
+
+        /* The master class list decides who is on the sheet; scores already
+           saved for this term stay attached to the right student. */
+        const templateRows = mergeRosterWithSavedScores(roster, savedRows);
 
         const workbook = XLSX.utils.book_new();
 
@@ -5203,7 +6664,7 @@ async function downloadSubjectTemplate() {
             getSubjectSheetName(subject, workbook)
         );
 
-        appendMetaSheet(workbook, className, subject);
+        appendMetaSheet(workbook, className, subject, context.session, context.term);
 
         const excelData = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
 
@@ -5217,6 +6678,8 @@ async function downloadSubjectTemplate() {
         link.href = url;
         link.download =
             className.replace(/[^a-z0-9]+/gi, "_") + "_" +
+            context.session.replace(/[^a-z0-9]+/gi, "_") + "_" +
+            context.term.replace(/[^a-z0-9]+/gi, "_") + "_" +
             subject.replace(/[^a-z0-9]+/gi, "_") + "_Template.xlsx";
 
         document.body.appendChild(link);
@@ -5228,8 +6691,13 @@ async function downloadSubjectTemplate() {
         }, 5000);
 
         setFileStatus(
-            "✅ " + escapeHTML(subject) + " template for " + escapeHTML(className) +
-            " downloaded (" + savedRows.length + " previously saved record(s) included)."
+            "✅ " + escapeHTML(subject) + " template for " + escapeHTML(contextLabel(context)) +
+            " downloaded" +
+            (roster.length > 0
+                ? " with " + roster.length + " student(s) from the class list."
+                : rosterFetchFailed
+                    ? ". ⚠ The class list could not be loaded, so names are blank."
+                    : ". No class list has been uploaded in Step 1A, so names are blank.")
         );
 
     } catch (error) {
@@ -5275,7 +6743,18 @@ function handleSubjectTemplateUpload(event) {
 
             const meta = readMetaFromWorkbook(workbook);
 
-            const className = meta.class_name || getSelectedWorkflowClass(subjectClassSelect || classNameInput, false);
+            const uploadContext = getWorkflowContext(false);
+            const className = meta.class_name || uploadContext.className;
+            const uploadSession = meta.session || uploadContext.session;
+            const uploadTerm = meta.term || uploadContext.term;
+
+            if (!uploadSession || !uploadTerm) {
+                if (elementExists(subjectTemplateStatus)) {
+                    subjectTemplateStatus.textContent =
+                        "❌ Select the Academic Session and Term in Step 1A first.";
+                }
+                return;
+            }
             const subject =
                 meta.subject ||
                 (elementExists(subjectTemplateSelect) ? subjectTemplateSelect.value : "");
@@ -5314,14 +6793,20 @@ function handleSubjectTemplateUpload(event) {
             const savedCount = await saveSubjectScoresToDatabase(
                 className,
                 subject,
-                rows
+                rows,
+                uploadSession,
+                uploadTerm
             );
+
+            const uploadRoster = await fetchClassRoster(className, uploadSession);
+            const rosterWarning = describeRosterMismatch(uploadRoster, rows);
 
             if (elementExists(subjectTemplateStatus)) {
                 subjectTemplateStatus.textContent =
                     "✅ Saved " + savedCount + " " + subject + " record(s) for " +
-                    className + ". They will appear automatically the next time " +
-                    "the general template is downloaded for this class, on any device.";
+                    className + " | " + uploadSession + " | " + uploadTerm +
+                    ". They will appear automatically in Step 1C for this term, on any device." +
+                    rosterWarning;
             }
 
         } catch (error) {
@@ -5364,9 +6849,10 @@ async function downloadExcelTemplate() {
 
         const workbook = XLSX.utils.book_new();
 
-        const activeClassName = getSelectedWorkflowClass(generalClassSelect || classNameInput, true);
-        if (!activeClassName) return;
-        syncWorkflowClassSelectors(activeClassName, generalClassSelect || classNameInput);
+        const templateContext = getWorkflowContext(true);
+        if (!templateContext) return;
+
+        const activeClassName = templateContext.className;
 
 
         /* =================================================
@@ -5413,14 +6899,16 @@ async function downloadExcelTemplate() {
         const savedScoresBySubject =
             await fetchAllSavedSubjectScoresForClass(
                 activeClassName,
-                schoolSubjects
+                schoolSubjects,
+                templateContext.session,
+                templateContext.term
             );
 
-        const masterRoster = await fetchClassRoster(activeClassName);
+        const masterRoster = await fetchClassRoster(activeClassName, templateContext.session);
 
         if (masterRoster.length === 0) {
             setRosterStatus(
-                "⚠️ No saved student list found. Add students in the Master Student List above first.",
+                "⚠️ No saved student list found. Upload the class list in Step 1A first.",
                 true
             );
         }
@@ -5444,8 +6932,8 @@ async function downloadExcelTemplate() {
                 rosterStudent ? rosterStudent.student_name : (i === 1 && masterRoster.length === 0 ? "Example Student" : ""),
                 rosterStudent ? rosterStudent.gender : (i === 1 && masterRoster.length === 0 ? "Male" : ""),
                 activeClassName,
-                rosterStudent ? rosterStudent.term : (i === 1 && masterRoster.length === 0 ? "First Term" : ""),
-                rosterStudent ? rosterStudent.session : (i === 1 && masterRoster.length === 0 ? "2025/2026" : ""),
+                rosterStudent ? templateContext.term : (i === 1 && masterRoster.length === 0 ? templateContext.term : ""),
+                rosterStudent ? templateContext.session : (i === 1 && masterRoster.length === 0 ? templateContext.session : ""),
                 rosterStudent ? rosterStudent.house : (i === 1 && masterRoster.length === 0 ? "Example House" : "")
             ];
 
@@ -5568,9 +7056,7 @@ async function downloadExcelTemplate() {
                uploaded for this class via the single-subject
                template, on this device or any other. */
             const savedSubjectRows = savedScoresBySubject[subject] || [];
-            const rosterSubjectRows = masterRoster.length
-                ? mergeRosterIntoSubjectRows(masterRoster, savedSubjectRows)
-                : savedSubjectRows;
+            const rosterSubjectRows = mergeRosterWithSavedScores(masterRoster, savedSubjectRows);
 
             for (let i = 1; i <= TEMPLATE_STUDENT_ROWS; i++) {
                 const saved = rosterSubjectRows[i - 1];
@@ -5713,7 +7199,7 @@ async function downloadExcelTemplate() {
         }
 
         /* Tag the whole workbook with the class it belongs to. */
-        appendMetaSheet(workbook, activeClassName, "");
+        appendMetaSheet(workbook, activeClassName, "", templateContext.session, templateContext.term);
 
         /* =================================================
            WRITE FILE
@@ -5730,7 +7216,11 @@ async function downloadExcelTemplate() {
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
         link.href = url;
-        link.download = activeClassName.replace(/[^a-z0-9]+/gi, "_") + "_Student_Report_Template.xlsx";
+        link.download =
+            activeClassName.replace(/[^a-z0-9]+/gi, "_") + "_" +
+            templateContext.session.replace(/[^a-z0-9]+/gi, "_") + "_" +
+            templateContext.term.replace(/[^a-z0-9]+/gi, "_") +
+            "_Student_Report_Template.xlsx";
         document.body.appendChild(link);
         link.click();
 
@@ -5746,7 +7236,10 @@ async function downloadExcelTemplate() {
         }).length;
 
         setFileStatus(
-            "✅ Template created successfully for " + escapeHTML(activeClassName) + " with " +
+            "✅ Template created successfully for " + escapeHTML(contextLabel(templateContext)) + " with " +
+            (masterRoster.length > 0
+                ? masterRoster.length + " student(s) from the class list and "
+                : (rosterFetchFailed ? "⚠ (class list could not be loaded) " : "no class list and ")) +
             schoolSubjects.length +
             " subject sheet(s)" +
             (mergedSubjectCount > 0
@@ -6044,6 +7537,10 @@ function handleExcelUpload(event) {
 
                 students =
                     actualRows;
+
+                /* Fill blank Class Teacher's / Principal's comments from each
+                   student's average (typed comments are never replaced). */
+                applyAutoCommentsToStudents(students);
 
 
                 saveAppData();
@@ -7733,9 +9230,9 @@ function getPublishResultData(student) {
             attendance:
                 behavior["Attendance"] || "",
             teacher_comment:
-                getAutomaticComments(average).teacher,
+                getReportComments(student).teacher,
             principal_comment:
-                getAutomaticComments(average).principal
+                getReportComments(student).principal
         },
 
         subjects: subjects
@@ -8770,63 +10267,18 @@ async function generateAllReports() {
 }
 
 
-/* =========================================================
-   AUTOMATIC TEACHER / PRINCIPAL COMMENTS
-   =========================================================
-   Comments are deliberately short enough for a report sheet but
-   detailed enough to be useful. They are based on the final average,
-   not on any individual subject.
-   ========================================================= */
+/* Comments shown on a term report: exactly what is stored on the student
+   (typed in the Scores sheet, or filled once when the Scores sheet was
+   uploaded in Step 2). Nothing is generated here. */
+function getReportComments(student) {
 
-function getAutomaticComments(average) {
-    const score = Number(average) || 0;
-
-    if (score >= 80) {
-        return {
-            teacher: "An outstanding performance. The student has demonstrated excellent understanding, consistency and commitment. Maintain this high standard and continue to aim for excellence.",
-            principal: "Excellent result. The student has shown exceptional academic performance and commendable dedication. Keep up the excellent work."
-        };
-    }
-
-    if (score >= 70) {
-        return {
-            teacher: "A very good performance. The student has shown strong understanding and good commitment to learning. Greater consistency can lead to an even higher achievement.",
-            principal: "Very good performance. The student has demonstrated sound academic progress and should be encouraged to sustain this level of effort."
-        };
-    }
-
-    if (score >= 60) {
-        return {
-            teacher: "A good performance. The student has demonstrated a satisfactory understanding of the work. More focused study and consistent practice will help improve the result.",
-            principal: "Good performance. The student is making satisfactory progress. Continued effort and closer attention to areas of weakness are encouraged."
-        };
-    }
-
-    if (score >= 50) {
-        return {
-            teacher: "A fair performance. The student understands some of the work but needs more regular study and participation. Greater effort should be made to improve performance.",
-            principal: "Fair performance. The student should increase commitment to academic work and receive continued guidance in areas requiring improvement."
-        };
-    }
-
-    if (score >= 45) {
-        return {
-            teacher: "The performance is satisfactory but requires improvement. The student should study more consistently, participate actively and seek help when necessary.",
-            principal: "The result requires improvement. The student is encouraged to demonstrate greater commitment, discipline and regularity in academic activities."
-        };
-    }
-
-    if (score >= 40) {
-        return {
-            teacher: "The performance is below expectation. The student needs a more consistent study routine, active classroom participation and additional support in difficult areas.",
-            principal: "The result is below the expected standard. The student should receive closer academic guidance and make a stronger commitment to improvement."
-        };
-    }
+    const behavior = (student && student.__behavior) || {};
 
     return {
-        teacher: "The performance needs significant improvement. The student should work closely with teachers, develop a regular study routine and give greater attention to all academic activities.",
-        principal: "The result is below the expected standard. Immediate academic support, closer supervision and sustained effort are recommended for meaningful improvement."
+        teacher: String(behavior["Class Teacher's Comment"] ?? ""),
+        principal: String(behavior["Principal's Comment"] ?? "")
     };
+
 }
 
 /* =========================================================
@@ -9220,13 +10672,13 @@ function createReport(student) {
        COMMENTS
        ===================================================== */
 
-    const automaticComments = getAutomaticComments(average);
+    const reportComments = getReportComments(student);
 
     const teacherComment =
-        automaticComments.teacher;
+        reportComments.teacher;
 
     const principalComment =
-        automaticComments.principal;
+        reportComments.principal;
 
 
     /* =====================================================
