@@ -1271,22 +1271,40 @@
             ================================= -->
 
             <section class="card" id="studentRosterSection">
-                <h2>Step 1A: Master Student Class List Template</h2>
+
+                <h2>Step 1A: Master Student Class List</h2>
 
                 <p>
-                    Select the class, download the Class List Template, enter the students in Excel,
-                    then upload the completed file. This uploaded class list becomes the master list
-                    used by the subject templates and the General Master Excel Template.
+                    Choose the Academic Session, Term and Class. This becomes the
+                    context for everything below. Download the Class List Template,
+                    enter each student's name (Admission No is optional &mdash; use it
+                    only to tell apart two students with the same name), then upload it.
+                    The names are filled automatically into every subject sheet in
+                    Step 1B and into the General Master Template in Step 1C.
                 </p>
 
-                <label for="rosterClassSelect" style="display:block; margin-top:10px;">
-                    <strong>Select Class</strong>
+                <label for="academicSessionSelect" style="display:block; margin-top:10px;">
+                    <strong>Academic Session</strong>
                 </label>
-                <select id="rosterClassSelect" style="margin-bottom:10px;">
+                <select id="academicSessionSelect" style="margin-bottom:10px;"></select>
+
+                <label for="academicTermSelect" style="display:block; margin-top:10px;">
+                    <strong>Term</strong>
+                </label>
+                <select id="academicTermSelect" style="margin-bottom:10px;"></select>
+
+                <label for="classNameSelect" style="display:block; margin-top:10px;">
+                    <strong>Class</strong>
+                </label>
+                <select id="classNameSelect" style="margin-bottom:10px;">
                     <option value="">-- Select Class --</option>
                 </select>
 
-                <p id="selectedRosterClass" style="font-weight:bold; margin:5px 0 12px;"></p>
+                <p style="font-size:0.85em; opacity:0.8;">
+                    Don't see your class? Add it in Step 0 above first.
+                </p>
+
+                <p class="context-banner" style="font-weight:bold; margin:8px 0 14px;"></p>
 
                 <button type="button" id="downloadClassListTemplate">
                     📥 Download Class List Template
@@ -1301,6 +1319,7 @@
                 </div>
 
                 <p id="rosterStatus" style="margin-top:10px; font-weight:600;"></p>
+
             </section>
 
 
@@ -1309,24 +1328,24 @@
             ================================= -->
 
             <section class="card">
-                <h2>Step 1B: Subject Templates</h2>
 
-                <p>
-                    Select the class and subject. The downloaded subject template will already contain
-                    the Student Name and Admission No. from the uploaded Class List. The subject teacher
-                    only enters 1st CA, 2nd CA and Exams. Upload the completed subject template when done.
+                <h2>Step 1B: Student Information &amp; Subject Templates</h2>
+
+                <p class="context-banner" style="font-weight:bold; margin:8px 0;"></p>
+
+                <div id="studentPreviewContainer"></div>
+
+                <p style="margin-top:10px;">
+                    The downloaded subject template already contains the Student Name
+                    and Admission No. from the class list above. The subject teacher only
+                    enters 1st CA, 2nd CA and Exams, then uploads the file here. Scores
+                    are saved separately for each Session and Term.
                 </p>
-
-                <label for="subjectClassSelect" style="display:block; margin-top:10px;">
-                    <strong>Select Class</strong>
-                </label>
-                <select id="subjectClassSelect" style="margin-bottom:10px;">
-                    <option value="">-- Select Class --</option>
-                </select>
 
                 <label for="subjectTemplateSelect" style="display:block; margin-top:10px;">
                     <strong>Subject</strong>
                 </label>
+
                 <select id="subjectTemplateSelect"></select>
 
                 <button id="downloadSubjectTemplate" style="margin-top:10px;">
@@ -1336,8 +1355,15 @@
                 <label for="subjectTemplateFile" style="display:block; margin-top:15px;">
                     <strong>Upload Completed Subject Template</strong>
                 </label>
-                <input type="file" id="subjectTemplateFile" accept=".xlsx,.xls">
+
+                <input
+                    type="file"
+                    id="subjectTemplateFile"
+                    accept=".xlsx,.xls"
+                >
+
                 <p id="subjectTemplateStatus" style="margin-top:10px;"></p>
+
             </section>
 
 
@@ -1346,27 +1372,63 @@
             ================================= -->
 
             <section class="card">
-                <h2>Step 1C: General Master Excel Template</h2>
+
+                <h2>Step 1C: Download Subjects Template &amp; Enter Scores</h2>
+
+                <p class="context-banner" style="font-weight:bold; margin:8px 0;"></p>
 
                 <p>
-                    Select the class and download the General Master Excel Template. It will contain
-                    the uploaded Class List and all subject scores that have already been uploaded by
-                    subject teachers for that class.
+                    Download the General Master Excel Template. It contains the class
+                    list and every subject score already uploaded by subject teachers
+                    for the selected Session and Term. Fill in anything missing, then
+                    upload the completed file in Step 2.
                 </p>
-
-                <label for="generalClassSelect" style="display:block; margin-top:10px;">
-                    <strong>Select Class</strong>
-                </label>
-                <select id="generalClassSelect" style="margin-bottom:10px;">
-                    <option value="">-- Select Class --</option>
-                </select>
-
-                <p id="selectedGeneralClass" style="font-weight:bold; margin:5px 0 12px;"></p>
 
                 <button id="downloadTemplate">
                     📥 Download General Master Excel Template
                 </button>
+
             </section>
+
+
+            <!-- =================================
+                 ANNUAL / CUMULATIVE PERFORMANCE
+            ================================= -->
+
+            <section class="card" id="cumulativeSection">
+
+                <h2>📊 Annual / Cumulative Performance</h2>
+
+                <p class="context-banner" data-context="annual" style="font-weight:bold; margin:8px 0;"></p>
+
+                <p>
+                    Combines the First, Second and Third Term scores saved for the
+                    selected Class and Session. Cumulative is the average of the terms
+                    that have scores. Click Show Cumulative Performance, pick a student from the
+                    list to generate one report, or generate every student's report at once. Each new cumulative report uses one report from your
+                    allowance, like a term report; regenerating the same report is free.
+                </p>
+
+                <button type="button" id="showCumulativeButton">Show Cumulative Performance</button>
+                <button type="button" id="downloadCumulativeButton">Download Cumulative Excel</button>
+
+                <div style="margin-top:12px;">
+                    <button type="button" id="generateCumulativeReportButton">
+                        📄 Generate Cumulative Report (selected student)
+                    </button>
+                    <button type="button" id="generateAllCumulativeReportsButton">
+                        📄 Generate All Cumulative Reports
+                    </button>
+                </div>
+
+                <select id="cumulativeStudentSelect" style="display:none; margin-top:10px;"></select>
+
+                <p id="cumulativeStatus" style="margin-top:10px;"></p>
+
+                <div id="cumulativeResult" style="overflow-x:auto;"></div>
+
+            </section>
+
 
 
             <!-- =================================
