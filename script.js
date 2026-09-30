@@ -624,7 +624,7 @@ const REPORT_LIMITS = {
     /* Not a literal Infinity: kept as a large finite number so every
        calculation above (carry-over math, remaining counts, the
        claim_report_allowance RPC) stays well-defined. Must match
-       PLAN_CONFIG.unlimited.reports in the paystack-verification1
+       PLAN_CONFIG.unlimited.reports in the paystack-verification
        edge function and the RPC's own CASE branch. */
     unlimited: 1000000,
 
