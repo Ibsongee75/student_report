@@ -3538,6 +3538,47 @@ function removeSchoolLogo() {
    ========================================================= */
 
 function attachApplicationEvents() {
+
+   /* Safety net: delegated click handler for all download buttons.
+   Runs in capture phase so it fires even if the button's own
+   listener was lost or the button has default type="submit". */
+document.addEventListener("click", async function (event) {
+    const target = event.target && event.target.closest
+        ? event.target.closest("#downloadTemplate, #downloadSubjectTemplate, #downloadClassListTemplate, #downloadCumulativeButton")
+        : null;
+
+    if (!target) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (target.disabled) return;
+
+    console.log("Download button tapped:", target.id);
+
+    target.disabled = true;
+    const originalText = target.textContent;
+    target.textContent = "⏳ Please wait…";
+
+    try {
+        if (target.id === "downloadTemplate") {
+            await downloadExcelTemplate();
+        } else if (target.id === "downloadSubjectTemplate") {
+            await downloadSubjectTemplate();
+        } else if (target.id === "downloadClassListTemplate") {
+            await downloadClassListTemplate();
+        } else if (target.id === "downloadCumulativeButton") {
+            await downloadCumulativeWorkbook();
+        }
+        console.log("Download OK:", target.id);
+    } catch (error) {
+        console.error("Download failed:", error);
+        alert("❌ Download failed:\n\n" + (error && error.message ? error.message : error));
+    } finally {
+        target.disabled = false;
+        target.textContent = originalText;
+    }
+}, true);
     
     if (elementExists(printReportButton)) {
     printReportButton.addEventListener(
