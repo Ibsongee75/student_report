@@ -510,12 +510,251 @@
         gap: 4px;
     }
 }
+
+/* =========================================
+   TOP BAR + HAMBURGER MENU
+   The hamburger opens a dropdown on every screen
+   size. Signed out it lists the landing sections;
+   signed in it lists the workspace steps.
+========================================= */
+html {
+    scroll-behavior: smooth;
+}
+
+#srg-features,
+#srg-how-it-works,
+#authSection,
+#contactSection,
+#schoolInformationSection,
+#srg-step-0,
+#studentRosterSection,
+#srg-step-1b,
+#srg-step-1c,
+#cumulativeSection,
+#srg-step-2,
+#reportSection,
+#publishResultsSection {
+    scroll-margin-top: 72px;
+}
+
+.srg-topbar,
+.srg-topbar * {
+    box-sizing: border-box;
+}
+
+.srg-topbar {
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+    background: var(--srg-paper);
+    border-bottom: 1px solid var(--srg-line);
+    font-family: 'Public Sans', system-ui, sans-serif;
+}
+
+.srg-topbar-inner {
+    position: relative;
+    max-width: 1080px;
+    height: 60px;
+    margin: 0 auto;
+    padding: 0 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.srg-brand {
+    font-family: 'Fraunces', Georgia, serif;
+    font-weight: 700;
+    font-size: 1.1rem;
+    color: var(--srg-ink);
+    text-decoration: none;
+}
+
+.srg-menu-toggle {
+    display: flex;
+    width: 44px;
+    height: 44px;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    background: none;
+    border: 1px solid var(--srg-line);
+    border-radius: var(--srg-radius);
+    box-shadow: none;
+    cursor: pointer;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+}
+
+.srg-menu-toggle span {
+    display: block;
+    width: 22px;
+    height: 2px;
+    background: var(--srg-ink);
+    transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.srg-menu-toggle[aria-expanded="true"] span:nth-child(1) {
+    transform: translateY(7px) rotate(45deg);
+}
+
+.srg-menu-toggle[aria-expanded="true"] span:nth-child(2) {
+    opacity: 0;
+}
+
+.srg-menu-toggle[aria-expanded="true"] span:nth-child(3) {
+    transform: translateY(-7px) rotate(-45deg);
+}
+
+.srg-menu {
+    display: none;
+    position: absolute;
+    top: 100%;
+    right: 24px;
+    width: 340px;
+    max-width: calc(100vw - 32px);
+    max-height: calc(100vh - 80px);
+    overflow-y: auto;
+    list-style: none;
+    margin: 0;
+    padding: 8px 12px 14px;
+    background: var(--srg-paper);
+    border: 1px solid var(--srg-line);
+    border-radius: 0 0 var(--srg-radius) var(--srg-radius);
+    box-shadow: 0 8px 16px rgba(27, 42, 74, 0.12);
+}
+
+.srg-menu.srg-open {
+    display: block;
+}
+
+.srg-menu li {
+    margin: 0;
+    padding: 0;
+}
+
+.srg-menu a {
+    display: block;
+    padding: 13px 12px;
+    color: var(--srg-ink);
+    font-size: 1rem;
+    font-weight: 600;
+    text-decoration: none;
+    border-radius: var(--srg-radius);
+}
+
+.srg-menu a:hover,
+.srg-menu a:focus-visible {
+    background: var(--srg-manila);
+}
+
+.srg-menu-label {
+    padding: 10px 12px 4px;
+    color: var(--srg-ink-soft);
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.srg-menu a.srg-menu-cta {
+    margin-top: 6px;
+    background: var(--srg-red);
+    color: #fff;
+    text-align: center;
+}
+
+.srg-menu a.srg-menu-cta:hover,
+.srg-menu a.srg-menu-cta:focus-visible {
+    background: var(--srg-red-deep);
+}
+
+/* Which group shows depends on whether the teacher is signed in. */
+.srg-group-app {
+    display: none;
+}
+
+.srg-in .srg-group-app {
+    display: block;
+}
+
+.srg-in .srg-group-home {
+    display: none;
+}
+
+@media (max-width: 820px) {
+
+    .srg-topbar-inner {
+        padding: 0 16px;
+    }
+
+    .srg-menu {
+        left: 0;
+        right: 0;
+        width: auto;
+        max-width: none;
+        border-left: 0;
+        border-right: 0;
+        border-radius: 0;
+    }
+
+}
 </style>
 
 </head>
 
 
 <body>
+
+    <!-- =========================================
+         TOP BAR + HAMBURGER MENU
+    ========================================= -->
+
+    <nav class="srg-topbar" aria-label="Main navigation">
+        <div class="srg-topbar-inner">
+
+            <a href="#" class="srg-brand">Student Report Generator</a>
+
+            <button
+                type="button"
+                class="srg-menu-toggle"
+                id="srgMenuToggle"
+                aria-label="Open menu"
+                aria-expanded="false"
+                aria-controls="srgMenu"
+            >
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+
+            <ul class="srg-menu" id="srgMenu">
+
+                <li class="srg-group-home"><a href="#srg-features">What it handles</a></li>
+                <li class="srg-group-home"><a href="#srg-how-it-works">How it works</a></li>
+
+                <li class="srg-group-app srg-menu-label">Your workspace</li>
+                <li class="srg-group-app"><a href="#schoolInformationSection">🏫 School information</a></li>
+                <li class="srg-group-app"><a href="#srg-step-0">Step 0: Manage classes</a></li>
+                <li class="srg-group-app"><a href="#studentRosterSection">Step 1A: Class list</a></li>
+                <li class="srg-group-app"><a href="#srg-step-1b">Step 1B: Subject templates</a></li>
+                <li class="srg-group-app"><a href="#srg-step-1c">Step 1C: Download Master template</a></li>
+                <li class="srg-group-app"><a href="#cumulativeSection">📊 Annual / Cumulative</a></li>
+                <li class="srg-group-app"><a href="#srg-step-2">Step 2: Upload master template</a></li>
+                <li class="srg-group-app"><a href="#reportSection">Step 3: Generate reports</a></li>
+                <li class="srg-group-app"><a href="#publishResultsSection">🌐 Publish results</a></li>
+
+                <li><a href="#contactSection">Contact &amp; Support</a></li>
+                <li class="srg-group-home"><a href="#authSection" class="srg-menu-cta">Get started</a></li>
+
+            </ul>
+
+        </div>
+    </nav>
+
+
 
 
     <div class="srg-landing">
@@ -569,7 +808,7 @@
          FEATURE LEDGER
     ========================================= -->
 
-    <section class="srg-ledger" aria-labelledby="srg-ledger-heading">
+    <section class="srg-ledger" id="srg-features" aria-labelledby="srg-ledger-heading">
 
         <h2 id="srg-ledger-heading" class="srg-section-title">What the generator handles for you</h2>
 
@@ -1270,7 +1509,7 @@
                  STEP 0: MANAGE CLASSES
             ================================= -->
 
-            <section class="card">
+            <section class="card" id="srg-step-0">
 
                 <h2>
                     Step 0: Manage Classes
@@ -1366,7 +1605,7 @@
                  STEP 1B: PER-SUBJECT TEMPLATES
             ================================= -->
 
-            <section class="card">
+            <section class="card" id="srg-step-1b">
 
                 <h2>Step 1B: Student Information &amp; Subject Templates</h2>
 
@@ -1410,9 +1649,9 @@
                  STEP 1C: GENERAL MASTER TEMPLATE
             ================================= -->
 
-            <section class="card">
+            <section class="card" id="srg-step-1c">
 
-                <h2>Step 1C: Download General Master Excel Template</h2>
+                <h2>Step 1C: Download Master Template</h2>
 
                 <p class="context-banner" style="font-weight:bold; margin:8px 0;"></p>
 
@@ -1424,7 +1663,7 @@
                 </p>
 
                 <button id="downloadTemplate">
-                    📥 Download General Master Excel Template
+                    📥 Download Master Excel Template
                 </button>
 
             </section>
@@ -1474,7 +1713,7 @@
                  STEP 2
             ================================= -->
 
-            <section class="card">
+            <section class="card" id="srg-step-2">
                 <h2>Step 2: Upload Completed General Master Template</h2>
 
                 <p>
@@ -1733,6 +1972,57 @@
 
     <script src="script.js?v=16"></script>
 
+
+<script>
+/* Hamburger menu: open/close, close after choosing a link, on
+   Escape, or when tapping outside the bar. Switches to the
+   workspace list when the signed-in app section is showing. */
+(function () {
+    var nav = document.querySelector(".srg-topbar");
+    var toggle = document.getElementById("srgMenuToggle");
+    var menu = document.getElementById("srgMenu");
+    var appSection = document.getElementById("appSection");
+    if (!nav || !toggle || !menu) return;
+
+    function refreshMode() {
+        var signedIn = !!appSection &&
+            window.getComputedStyle(appSection).display !== "none";
+        nav.classList.toggle("srg-in", signedIn);
+    }
+
+    function setOpen(open) {
+        if (open) refreshMode();
+        menu.classList.toggle("srg-open", open);
+        toggle.setAttribute("aria-expanded", open ? "true" : "false");
+        toggle.setAttribute("aria-label", open ? "Close menu" : "Open menu");
+    }
+
+    refreshMode();
+
+    if (appSection && window.MutationObserver) {
+        new MutationObserver(refreshMode).observe(appSection, {
+            attributes: true,
+            attributeFilter: ["style", "class"]
+        });
+    }
+
+    toggle.addEventListener("click", function () {
+        setOpen(!menu.classList.contains("srg-open"));
+    });
+
+    menu.addEventListener("click", function (event) {
+        if (event.target.closest("a")) setOpen(false);
+    });
+
+    document.addEventListener("keydown", function (event) {
+        if (event.key === "Escape") setOpen(false);
+    });
+
+    document.addEventListener("click", function (event) {
+        if (!event.target.closest(".srg-topbar")) setOpen(false);
+    });
+})();
+</script>
 
 </body>
 
