@@ -527,6 +527,7 @@ html {
 #contactSection,
 #schoolInformationSection,
 #srg-step-0,
+#staffManagementSection,
 #studentRosterSection,
 #srg-step-1b,
 #srg-step-1c,
@@ -701,6 +702,93 @@ html {
     }
 
 }
+
+/* =========================================
+   STAFF ROLES
+========================================= */
+.srg-staff-join {
+    margin-top: 14px;
+    text-align: center;
+}
+
+.srg-staff-join a {
+    font-weight: 600;
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+#staffJoinPanel {
+    margin-top: 12px;
+    text-align: left;
+}
+
+#staffJoinPanel input {
+    display: block;
+    width: 100%;
+    margin: 8px 0;
+}
+
+.srg-staff-card {
+    margin: 10px 0;
+    padding: 12px;
+    border: 1px solid var(--srg-line);
+    border-radius: var(--srg-radius);
+    background: #fff;
+}
+
+.srg-staff-card ul {
+    margin: 8px 0;
+    padding-left: 20px;
+}
+
+.srg-staff-add select,
+.srg-staff-add input {
+    margin: 4px 4px 4px 0;
+    max-width: 100%;
+}
+
+.srg-staff-actions {
+    margin-top: 8px;
+}
+
+#schoolJoinCode {
+    font-size: 1.4rem;
+    font-weight: 700;
+    letter-spacing: 3px;
+}
+
+/* Staff see only the sections their role needs. */
+/* Never shown to staff. */
+body.srg-staff-mode .srg-owner-only,
+body.srg-staff-mode #schoolInformationSection,
+body.srg-staff-mode #srg-step-0,
+body.srg-staff-mode #subscriptionStatus,
+body.srg-staff-mode #renewUpgradeButton {
+    display: none !important;
+}
+
+/* Report pages: form masters only, and only while the school's
+   report subscription is active. */
+body.srg-staff-mode:not(.srg-role-formmaster) #srg-step-1c,
+body.srg-staff-mode:not(.srg-role-formmaster) #cumulativeSection,
+body.srg-staff-mode:not(.srg-role-formmaster) #srg-step-2,
+body.srg-staff-mode:not(.srg-role-formmaster) #reportSection,
+body.srg-staff-mode:not(.srg-role-formmaster) #publishResultsSection,
+body.srg-staff-mode.srg-no-allowance #srg-step-1c,
+body.srg-staff-mode.srg-no-allowance #cumulativeSection,
+body.srg-staff-mode.srg-no-allowance #srg-step-2,
+body.srg-staff-mode.srg-no-allowance #reportSection,
+body.srg-staff-mode.srg-no-allowance #publishResultsSection {
+    display: none !important;
+}
+
+body.srg-staff-mode:not(.srg-role-formmaster) #classListTools {
+    display: none !important;
+}
+
+body.srg-staff-mode:not(.srg-role-subject) #srg-step-1b {
+    display: none !important;
+}
 </style>
 
 </head>
@@ -738,9 +826,10 @@ html {
                 <li class="srg-group-app srg-menu-label">Your workspace</li>
                 <li class="srg-group-app"><a href="#schoolInformationSection">🏫 School information</a></li>
                 <li class="srg-group-app"><a href="#srg-step-0">Step 0: Manage classes</a></li>
+                <li class="srg-group-app srg-owner-only"><a href="#staffManagementSection">👥 Staff access</a></li>
                 <li class="srg-group-app"><a href="#studentRosterSection">Step 1A: Class list</a></li>
                 <li class="srg-group-app"><a href="#srg-step-1b">Step 1B: Subject templates</a></li>
-                <li class="srg-group-app"><a href="#srg-step-1c">Step 1C: Download Master template</a></li>
+                <li class="srg-group-app"><a href="#srg-step-1c">Step 1C: Download &amp; enter scores</a></li>
                 <li class="srg-group-app"><a href="#cumulativeSection">📊 Annual / Cumulative</a></li>
                 <li class="srg-group-app"><a href="#srg-step-2">Step 2: Upload master template</a></li>
                 <li class="srg-group-app"><a href="#reportSection">Step 3: Generate reports</a></li>
@@ -1007,9 +1096,61 @@ html {
         Forgot Password?
     </a>
 
+    <!-- STAFF: JOIN A SCHOOL -->
+    <div class="srg-staff-join">
+
+        <a id="staffJoinToggle" href="#">
+            I'm a staff member joining a school
+        </a>
+
+        <div id="staffJoinPanel" style="display: none;">
+
+            <p>
+                Enter your email and password above, then your name and the
+                school code from your school owner. The owner must approve
+                you before you can use the site. Once approved, just use
+                &ldquo;Sign in&rdquo; next time.
+            </p>
+
+            <input type="text" id="staffFullName" placeholder="Your full name">
+
+            <input type="text" id="staffJoinCode" placeholder="School code" autocapitalize="characters">
+
+            <div class="srg-auth-buttons">
+
+                <button type="button" id="staffSignUpButton">
+                    Create staff account
+                </button>
+
+                <button type="button" id="staffSignInButton">
+                    Sign in &amp; request access
+                </button>
+
+            </div>
+
+        </div>
+
+    </div>
+
+
     <p id="authStatus"></p>
 
   </div>
+</section>
+
+
+<!-- =========================================
+     STAFF STATUS (waiting for approval, etc.)
+========================================= -->
+
+<section class="card" id="staffStatusSection" style="display: none;">
+
+    <h2 id="staffStatusTitle">Waiting for approval</h2>
+
+    <p id="staffStatusMessage"></p>
+
+    <button type="button" id="staffStatusSignOut">Sign out</button>
+
 </section>
 
 
@@ -1412,6 +1553,9 @@ html {
 
         <main>
 
+            <div class="card" id="staffRoleBanner" style="display: none;"></div>
+
+
 
             <!-- =========================================
                  SCHOOL INFORMATION
@@ -1545,6 +1689,42 @@ html {
 
 
             <!-- =================================
+                 STAFF ACCESS (owner only)
+            ================================= -->
+
+            <section class="card srg-owner-only" id="staffManagementSection">
+
+                <h2>Staff access</h2>
+
+                <p>
+                    Give this school code to your teachers. On the sign-in page they
+                    tap &ldquo;I'm a staff member joining a school&rdquo;, create an
+                    account with the code, and you approve them here. Then assign each
+                    person a class (form master) or a subject in a class (subject teacher).
+                </p>
+
+                <p>
+                    <strong>School code:</strong>
+                    <span id="schoolJoinCode">…</span>
+                    <button type="button" data-staff-action="copy-code">Copy</button>
+                    <button type="button" data-staff-action="reset-code">New code</button>
+                </p>
+
+                <h3>Waiting for approval</h3>
+                <div id="pendingStaffList"></div>
+
+                <h3>Approved staff</h3>
+                <div id="approvedStaffList"></div>
+
+                <h3>Removed staff</h3>
+                <div id="removedStaffList"></div>
+
+                <p id="staffManagementStatus" style="font-weight: 600;"></p>
+
+            </section>
+
+
+            <!-- =================================
                  STEP 1A: MASTER STUDENT CLASS LIST
             ================================= -->
 
@@ -1584,6 +1764,7 @@ html {
 
                 <p class="context-banner" style="font-weight:bold; margin:8px 0 14px;"></p>
 
+                <div id="classListTools">
                 <button type="button" id="downloadClassListTemplate">
                     📥 Download Class List Template
                 </button>
@@ -1594,6 +1775,7 @@ html {
                     <button type="button" id="uploadClassListButton" style="margin-top:10px;">
                         ⬆️ Upload Class List
                     </button>
+                </div>
                 </div>
 
                 <p id="rosterStatus" style="margin-top:10px; font-weight:600;"></p>
@@ -1714,7 +1896,7 @@ html {
             ================================= -->
 
             <section class="card" id="srg-step-2">
-                <h2>Step 2: Upload Completed Master Template</h2>
+                <h2>Step 2: Upload Completed Master Excel Template</h2>
 
                 <p>
                     After completing the General Master Excel Template, upload it here to load the
@@ -1920,7 +2102,7 @@ html {
     </p>
 
     <p>
-        <strong>Whatsapp🟢/Call☎️:</strong>
+        <strong>WhatsApp🟢/Call☎️:</strong>
         <a href="tel:07030477086">
             07030477086
         </a>
@@ -1970,7 +2152,7 @@ html {
          YOUR JAVASCRIPT
     ========================================= -->
 
-    <script src="script.js?v=16"></script>
+    <script src="script.js?v=23"></script>
 
 
 <script>
@@ -1990,8 +2172,19 @@ html {
         nav.classList.toggle("srg-in", signedIn);
     }
 
+    function updateMenuForRole() {
+        var staff = nav.classList.contains("srg-staff");
+        menu.querySelectorAll(".srg-group-app a").forEach(function (a) {
+            var li = a.parentNode;
+            if (!staff) { li.style.display = ""; return; }
+            var target = document.querySelector(a.getAttribute("href"));
+            var hidden = !target || window.getComputedStyle(target).display === "none";
+            li.style.display = hidden ? "none" : "";
+        });
+    }
+
     function setOpen(open) {
-        if (open) refreshMode();
+        if (open) { refreshMode(); updateMenuForRole(); }
         menu.classList.toggle("srg-open", open);
         toggle.setAttribute("aria-expanded", open ? "true" : "false");
         toggle.setAttribute("aria-label", open ? "Close menu" : "Open menu");
