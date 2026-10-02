@@ -533,6 +533,7 @@ html {
 #srg-step-1c,
 #cumulativeSection,
 #srg-step-2,
+#studentPhotosSection,
 #reportSection,
 #publishResultsSection {
     scroll-margin-top: 72px;
@@ -772,11 +773,13 @@ body.srg-staff-mode #renewUpgradeButton {
 body.srg-staff-mode:not(.srg-role-formmaster) #srg-step-1c,
 body.srg-staff-mode:not(.srg-role-formmaster) #cumulativeSection,
 body.srg-staff-mode:not(.srg-role-formmaster) #srg-step-2,
+body.srg-staff-mode:not(.srg-role-formmaster) #studentPhotosSection,
 body.srg-staff-mode:not(.srg-role-formmaster) #reportSection,
 body.srg-staff-mode:not(.srg-role-formmaster) #publishResultsSection,
 body.srg-staff-mode.srg-no-allowance #srg-step-1c,
 body.srg-staff-mode.srg-no-allowance #cumulativeSection,
 body.srg-staff-mode.srg-no-allowance #srg-step-2,
+body.srg-staff-mode.srg-no-allowance #studentPhotosSection,
 body.srg-staff-mode.srg-no-allowance #reportSection,
 body.srg-staff-mode.srg-no-allowance #publishResultsSection {
     display: none !important;
@@ -832,6 +835,7 @@ body.srg-staff-mode:not(.srg-role-subject) #srg-step-1b {
                 <li class="srg-group-app"><a href="#srg-step-1c">Step 1C: Download Master template</a></li>
                 <li class="srg-group-app"><a href="#cumulativeSection">📊 Annual / Cumulative</a></li>
                 <li class="srg-group-app"><a href="#srg-step-2">Step 2: Upload master template</a></li>
+                <li class="srg-group-app"><a href="#studentPhotosSection">📷 Student pictures</a></li>
                 <li class="srg-group-app"><a href="#reportSection">Step 3: Generate reports</a></li>
                 <li class="srg-group-app"><a href="#publishResultsSection">🌐 Publish results</a></li>
 
@@ -1833,7 +1837,7 @@ body.srg-staff-mode:not(.srg-role-subject) #srg-step-1b {
 
             <section class="card" id="srg-step-1c">
 
-                <h2>Step 1C: Download Master Excel Template</h2>
+                <h2>Step 1C: Download Master Template</h2>
 
                 <p class="context-banner" style="font-weight:bold; margin:8px 0;"></p>
 
@@ -1905,7 +1909,7 @@ body.srg-staff-mode:not(.srg-role-subject) #srg-step-1b {
             ================================= -->
 
             <section class="card" id="srg-step-2">
-                <h2>Step 2: Upload Completed Master Excel Template</h2>
+                <h2>Step 2: Upload Completed Master Template</h2>
 
                 <p>
                     After completing the General Master Excel Template, upload it here to load the
@@ -1914,6 +1918,41 @@ body.srg-staff-mode:not(.srg-role-subject) #srg-step-1b {
 
                 <input type="file" id="excelFile" accept=".xlsx,.xls">
                 <p id="fileStatus"></p>
+            </section>
+
+
+            <!-- =================================
+                 STUDENT PICTURES (optional)
+            ================================= -->
+
+            <section class="card" id="studentPhotosSection">
+
+                <h2>📷 Student Pictures (optional)</h2>
+
+                <p>
+                    Add passport pictures to the report sheets. Name each picture file
+                    with the student's <strong>admission number</strong> (for example
+                    <em>2024-015.jpg</em>) or <strong>full name</strong> (for example
+                    <em>Ada Obi.jpg</em>). You can choose many files at once.
+                </p>
+
+                <p>
+                    <small>
+                        Pictures are saved <strong>only on this device and browser</strong>.
+                        They are never uploaded or published online, and they are lost if
+                        you clear your browser data.
+                    </small>
+                </p>
+
+                <input type="file" id="studentPhotoInput" accept="image/*" multiple>
+
+                <div style="margin-top:12px;">
+                    <button type="button" id="saveStudentPhotosButton">Save Pictures</button>
+                    <button type="button" id="clearStudentPhotosButton">Delete All Pictures</button>
+                </div>
+
+                <p id="studentPhotoStatus" style="font-weight:600;"></p>
+
             </section>
 
 
@@ -2111,7 +2150,7 @@ body.srg-staff-mode:not(.srg-role-subject) #srg-step-1b {
     </p>
 
     <p>
-        <strong>WhatsApp🟢/Call☎️:</strong>
+        <strong>WhatsApp/Call:</strong>
         <a href="tel:07030477086">
             07030477086
         </a>
@@ -2161,7 +2200,7 @@ body.srg-staff-mode:not(.srg-role-subject) #srg-step-1b {
          YOUR JAVASCRIPT
     ========================================= -->
 
-    <script src="script.js?v=24"></script>
+    <script src="script.js?v=28"></script>
 
 
 <script>
