@@ -688,6 +688,10 @@
                     Third Term
                 </option>
 
+                <option value="Cumulative">
+                    Cumulative (Annual)
+                </option>
+
             </select>
 
 
@@ -823,29 +827,19 @@
                             Subject
                         </th>
 
-                        <th>
-                            1st CA
-                        </th>
+                        <th id="thCa1">1st CA</th>
 
-                        <th>
-                            2nd CA
-                        </th>
+                        <th id="thCa2">2nd CA</th>
 
-                        <th>
-                            Exam
-                        </th>
+                        <th id="thExam">Exam</th>
 
-                        <th>
-                            Total
-                        </th>
+                        <th id="thTotal">Total</th>
 
                         <th>
                             Grade
                         </th>
 
-                        <th>
-                            Position
-                        </th>
+                        <th id="thSubjectPosition">Position</th>
 
                     </tr>
 
@@ -853,6 +847,7 @@
 
 
                 <tbody id="subjectResultsBody"></tbody>
+                <tfoot id="subjectResultsFoot"></tfoot>
 
             </table>
 
@@ -1023,8 +1018,9 @@ WEBSITE ID
 
 THIS COPY IS FOR:
 
-ReportSheet
-reportgen1
+Student-report-system-ibsongee75
+ibsongee75
+1
 =========================================================
 */
 
@@ -1222,6 +1218,56 @@ function setSchoolLogo(
    DISPLAY RESULT
 ===================================================== */
 
+/* =====================================================
+   CUMULATIVE (ANNUAL) RESULTS
+   A result published with the term "Cumulative" stores the
+   First / Second / Third term totals in the CA1 / CA2 / Exam
+   slots and the cumulative figure in Total.
+===================================================== */
+function applyResultMode(isCumulative) {
+    var labels = isCumulative
+        ? { thCa1: "1st Term", thCa2: "2nd Term", thExam: "3rd Term", thTotal: "Cumulative" }
+        : { thCa1: "1st CA", thCa2: "2nd CA", thExam: "Exam", thTotal: "Total" };
+    Object.keys(labels).forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el) el.textContent = labels[id];
+    });
+    var positionHead = document.getElementById("thSubjectPosition");
+    if (positionHead) positionHead.style.display = isCumulative ? "none" : "";
+    var attendance = document.getElementById("resultAttendance");
+    if (attendance && attendance.parentNode) {
+        attendance.parentNode.style.display = isCumulative ? "none" : "";
+    }
+}
+
+function cumulativeNumber(value) {
+    if (value === null || value === undefined || value === "") return "\u2013";
+    var number = Number(value);
+    return isNaN(number) ? value : String(Math.round(number * 10) / 10);
+}
+
+function renderCumulativeFooter(subjects, isCumulative) {
+    var foot = document.getElementById("subjectResultsFoot");
+    if (!foot) return;
+    foot.innerHTML = "";
+    if (!isCumulative || subjects.length === 0) return;
+    function average(key) {
+        var values = subjects
+            .map(function (s) { return s[key]; })
+            .filter(function (v) { return v !== null && v !== undefined && v !== "" && !isNaN(Number(v)); })
+            .map(Number);
+        if (values.length === 0) return "\u2013";
+        return cumulativeNumber(values.reduce(function (a, b) { return a + b; }, 0) / values.length);
+    }
+    var row = document.createElement("tr");
+    ["Average", average("ca1"), average("ca2"), average("exam"), average("total"), ""].forEach(function (text) {
+        var cell = document.createElement("th");
+        cell.textContent = text;
+        row.appendChild(cell);
+    });
+    foot.appendChild(row);
+}
+
 function displayResult(
     data
 ) {
@@ -1318,7 +1364,9 @@ function displayResult(
     document.getElementById(
         "resultAverage"
     ).textContent =
-        result.average ?? "";
+        String(result.term || "").trim().toLowerCase() === "cumulative"
+            ? cumulativeNumber(result.average)
+            : (result.average ?? "");
 
 
     document.getElementById(
@@ -1365,8 +1413,13 @@ function displayResult(
         );
 
 
-    subjectBody.innerHTML =
-        "";
+    subjectBody.innerHTML = "";
+
+    var isCumulative =
+        String(result.term || "").trim().toLowerCase() === "cumulative";
+
+    applyResultMode(isCumulative);
+    renderCumulativeFooter(subjects, isCumulative);
 
 
     subjects.forEach(
@@ -1394,23 +1447,24 @@ function displayResult(
                 "";
 
 
-            const values = [
-
-                subject.subject_name,
-
-                subject.ca1,
-
-                subject.ca2,
-
-                subject.exam,
-
-                subject.total,
-
-                subject.grade,
-
-                subjectPosition
-
-            ];
+            const values = isCumulative
+                ? [
+                    subject.subject_name,
+                    cumulativeNumber(subject.ca1),
+                    cumulativeNumber(subject.ca2),
+                    cumulativeNumber(subject.exam),
+                    cumulativeNumber(subject.total),
+                    subject.grade
+                ]
+                : [
+                    subject.subject_name,
+                    subject.ca1,
+                    subject.ca2,
+                    subject.exam,
+                    subject.total,
+                    subject.grade,
+                    subjectPosition
+                ];
 
 
             values.forEach(
