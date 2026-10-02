@@ -1833,7 +1833,7 @@ body.srg-staff-mode:not(.srg-role-subject) #srg-step-1b {
 
             <section class="card" id="srg-step-1c">
 
-                <h2>Step 1C: Download Master Template</h2>
+                <h2>Step 1C: Download Master Excel Template</h2>
 
                 <p class="context-banner" style="font-weight:bold; margin:8px 0;"></p>
 
@@ -1880,6 +1880,15 @@ body.srg-staff-mode:not(.srg-role-subject) #srg-step-1b {
                         📄 Generate All Cumulative Reports
                     </button>
                 </div>
+                <div style="margin-top:12px;">
+                    <button type="button" id="publishCumulativeResultButton">
+                        🌐 Publish Cumulative Result Online (selected student)
+                    </button>
+                    <button type="button" id="publishAllCumulativeResultsButton">
+                        🌐 Publish All Cumulative Results Online
+                    </button>
+                </div>
+                <div id="cumulativePublishInfo" style="display:none; margin-top:15px;"></div>
 
                 <select id="cumulativeStudentSelect" style="display:none; margin-top:10px;"></select>
 
@@ -2152,7 +2161,7 @@ body.srg-staff-mode:not(.srg-role-subject) #srg-step-1b {
          YOUR JAVASCRIPT
     ========================================= -->
 
-    <script src="script.js?v=23"></script>
+    <script src="script.js?v=24"></script>
 
 
 <script>
