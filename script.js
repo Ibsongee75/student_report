@@ -6417,7 +6417,7 @@ async function downloadClassListTemplate() {
         }
 
         sheet["!cols"] = [
-            { wch: 14 }, { wch: 28 }, { wch: 9 }, { wch: 12 }, { wch: 14 }, { wch: 11 }
+            { wch: 9 }, { wch: 13 }, { wch: 8 }, { wch: 9 }, { wch: 10 }, { wch: 9 }
         ];
         sheet["!freeze"] = { xSplit: 2, ySplit: 1 };
 
