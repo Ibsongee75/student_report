@@ -26,7 +26,7 @@ const WEBSITE_ID = "ibsongee75";
 const WEBSITE_NAME = "StudentReport";
 
 const WEBSITE_URL =
-    "https://ibsongee75.github.io/Student-report-system-ibsongee75/";
+    "https://ibsongee75.github.io/student_report/";
 /* =========================================================
    STUDENT REPORT GENERATOR
    COMPLETE CLEANED script.js
