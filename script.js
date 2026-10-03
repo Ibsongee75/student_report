@@ -14085,10 +14085,10 @@ let reportPrintStyle = null;
    ========================================================= */
 
 const MM_TO_PX = 96 / 25.4;          // CSS-spec fixed conversion (96px = 1in = 25.4mm)
-const PAGE_CONTENT_HEIGHT_MM = 281;  // A4 height (297mm) minus the larger 8mm top+bottom @page margin
-const REPORT_WIDTH_MM = 194;         // A4 width (210mm) minus the larger 8mm left+right @page margin
-const REPORT_PAD_TOP_MM = 10;
-const REPORT_PAD_BOTTOM_MM = 10;
+const PAGE_CONTENT_HEIGHT_MM = 303;  // A4 height (297mm) minus the larger 8mm top+bottom @page margin
+const REPORT_WIDTH_MM = 216;         // A4 width (210mm) minus the larger 8mm left+right @page margin
+const REPORT_PAD_TOP_MM = 4;
+const REPORT_PAD_BOTTOM_MM = 3;
 
 function fitReportsToSinglePage() {
     if (!reportPrintLayer) return;
