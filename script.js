@@ -7003,7 +7003,7 @@ async function buildPrefilledAttendanceTemplate(bytes, info) {
     newXml = newXml.replace(
         /(<col min="3" max="3"[^>]*?\swidth=")([\d.]+)(")/,
         function (all, before, width, after) {
-            return Number(width) < 15 ? before + "15" + after : all;
+            return Number(width) < 17 ? before + "17" + after : all;
         }
     );
 
