@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>School Admission</title>
+    <link rel="stylesheet" href="admissions.css">
+</head>
+
+<body class="adm-body">
+
+    <div class="adm-header">
+        <h1 id="schoolTitle">School Admission</h1>
+        <p id="schoolSub">Online admission application</p>
+    </div>
+
+    <div class="adm-main">
+
+        <!-- Shown when the link is wrong -->
+        <div class="adm-card" id="badLink" style="display:none;">
+            <h2>Link not valid</h2>
+            <p>This application link is not valid or is incomplete. Please ask the school for the correct
+                admission link.</p>
+        </div>
+
+        <div id="applyArea" style="display:none;">
+
+            <div class="adm-tabs">
+                <button type="button" class="adm-tab active" data-tab="apply">Apply</button>
+                <button type="button" class="adm-tab" data-tab="status">Check status / Print letter</button>
+                <button type="button" class="adm-tab" data-tab="verify">Verify a letter</button>
+            </div>
+
+            <!-- ============ APPLY ============ -->
+            <div class="adm-card" id="tab-apply">
+
+                <h2>Application form</h2>
+                <p>Fields marked <span style="color:#b3261e;">*</span> are required.</p>
+
+                <div id="applyFormBox">
+                    <div class="adm-form adm-two" id="applyForm">
+
+                        <div class="adm-field adm-full">
+                            <label for="fFullName">Child's full name <span class="adm-req">*</span></label>
+                            <input id="fFullName" type="text" maxlength="120" autocomplete="off">
+                        </div>
+
+                        <div class="adm-field">
+                            <label for="fDob">Date of birth <span class="adm-req">*</span></label>
+                            <input id="fDob" type="date">
+                        </div>
+
+                        <div class="adm-field">
+                            <label for="fGender">Gender</label>
+                            <select id="fGender">
+                                <option value="">Select</option>
+                                <option>Male</option>
+                                <option>Female</option>
+                            </select>
+                        </div>
+
+                        <div class="adm-field adm-full">
+                            <label for="fClass">Class applying for <span class="adm-req">*</span></label>
+                            <input id="fClass" type="text" maxlength="60" placeholder="e.g. JSS 1, Primary 3">
+                        </div>
+
+                        <div class="adm-field">
+                            <label for="fParent">Parent / guardian name <span class="adm-req">*</span></label>
+                            <input id="fParent" type="text" maxlength="120">
+                        </div>
+
+                        <div class="adm-field">
+                            <label for="fPhone">Parent phone number <span class="adm-req">*</span></label>
+                            <input id="fPhone" type="tel" maxlength="30" placeholder="e.g. 08012345678">
+                        </div>
+
+                        <div class="adm-field adm-full">
+                            <label for="fEmail">Parent email (optional)</label>
+                            <input id="fEmail" type="email" maxlength="120">
+                        </div>
+
+                        <div class="adm-field adm-full">
+                            <label for="fAddress">Home address (optional)</label>
+                            <textarea id="fAddress" maxlength="300"></textarea>
+                        </div>
+
+                        <div class="adm-field adm-full">
+                            <label for="fPrevSchool">Previous school (optional)</label>
+                            <input id="fPrevSchool" type="text" maxlength="150">
+                        </div>
+
+                        <!-- spam trap: real people never see or fill this -->
+                        <div class="adm-hp" aria-hidden="true">
+                            <label for="fWebsite">Leave this empty</label>
+                            <input id="fWebsite" type="text" tabindex="-1" autocomplete="off">
+                        </div>
+
+                        <div class="adm-full">
+                            <button type="button" id="submitApplication">Submit application</button>
+                            <p class="adm-msg" id="applyMsg"></p>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div id="applyDone" style="display:none;">
+                    <div class="adm-ok-box">
+                        <strong>Application received.</strong>
+                        <p style="margin:6px 0 0;">Your reference number is:</p>
+                        <div class="adm-ref" id="doneRef"></div>
+                        <p style="margin:6px 0 0;">
+                            <strong>Write it down.</strong> Use it with the phone number you entered to check
+                            your status and to print the admission letter once the school approves.
+                        </p>
+                    </div>
+                    <button type="button" id="goStatus">Check my status</button>
+                    <button type="button" class="adm-btn-ghost" id="applyAnother">Apply for another child</button>
+                </div>
+
+            </div>
+
+            <!-- ============ STATUS ============ -->
+            <div class="adm-card" id="tab-status" style="display:none;">
+
+                <h2>Check status / Print letter</h2>
+                <p>Enter the reference number you received and the phone number used in the application.</p>
+
+                <div class="adm-form adm-two">
+                    <div class="adm-field">
+                        <label for="sRef">Reference number</label>
+                        <input id="sRef" type="text" placeholder="APP-XXXXXXXX" autocapitalize="characters">
+                    </div>
+                    <div class="adm-field">
+                        <label for="sPhone">Parent phone number</label>
+                        <input id="sPhone" type="tel">
+                    </div>
+                    <div class="adm-full">
+                        <button type="button" id="checkStatus">Check</button>
+                        <p class="adm-msg" id="statusMsg"></p>
+                    </div>
+                </div>
+
+                <div id="statusResult"></div>
+
+            </div>
+
+            <!-- ============ VERIFY ============ -->
+            <div class="adm-card" id="tab-verify" style="display:none;">
+
+                <h2>Verify an admission letter</h2>
+                <p>Enter the admission number printed on the letter to confirm it is genuine.</p>
+
+                <div class="adm-form">
+                    <div class="adm-field">
+                        <label for="vNo">Admission number</label>
+                        <input id="vNo" type="text" placeholder="ADM/2026/0001" autocapitalize="characters">
+                    </div>
+                    <div>
+                        <button type="button" id="verifyLetter">Verify</button>
+                        <p class="adm-msg" id="verifyMsg"></p>
+                    </div>
+                </div>
+
+                <div id="verifyResult"></div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="admissions-common.js"></script>
+    <script src="apply.js"></script>
+
+</body>
+
+</html>

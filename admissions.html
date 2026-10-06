@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admissions</title>
+    <link rel="stylesheet" href="admissions.css">
+</head>
+
+<body class="adm-body">
+
+    <div class="adm-header">
+        <h1>Admissions</h1>
+        <p id="hdrSchool">Review and approve applications</p>
+        <div class="adm-header-actions">
+            <button type="button" class="adm-btn-ghost" id="backToSite">&larr; Back to report generator</button>
+            <button type="button" class="adm-btn-ghost" id="signOutBtn" style="display:none;">Sign out</button>
+        </div>
+    </div>
+
+    <div class="adm-main">
+
+        <!-- Not signed in / no access / setup problem -->
+        <div class="adm-card" id="gateCard" style="display:none;">
+            <h2 id="gateTitle"></h2>
+            <p id="gateText"></p>
+            <button type="button" id="gateButton" style="display:none;"></button>
+        </div>
+
+        <div id="dash" style="display:none;">
+
+            <div class="adm-card" id="schoolPickCard" style="display:none;">
+                <div class="adm-field">
+                    <label for="schoolPick">School</label>
+                    <select id="schoolPick"></select>
+                </div>
+            </div>
+
+            <!-- Application link -->
+            <div class="adm-card">
+                <h2>Application link for parents</h2>
+                <p>Share this link (for example on WhatsApp or your school page). Parents open it, fill the form
+                    and get a reference number. No login is needed.</p>
+                <div class="adm-link-row">
+                    <input class="adm-input" id="applyLink" type="text" readonly>
+                    <button type="button" id="copyLink">Copy link</button>
+                    <button type="button" class="adm-btn-ghost" id="shareLink">Share on WhatsApp</button>
+                </div>
+                <p class="adm-msg" id="linkMsg"></p>
+            </div>
+
+            <!-- Numbers -->
+            <div class="adm-stats">
+                <div class="adm-stat"><b id="cPending">0</b><span>Pending</span></div>
+                <div class="adm-stat"><b id="cAdmitted">0</b><span>Admitted</span></div>
+                <div class="adm-stat"><b id="cRejected">0</b><span>Not admitted</span></div>
+                <div class="adm-stat"><b id="cTotal">0</b><span>Total</span></div>
+            </div>
+
+            <!-- Applications -->
+            <div class="adm-card">
+                <h2>Applications</h2>
+
+                <div class="adm-tabs" id="filterTabs">
+                    <button type="button" class="adm-tab active" data-filter="pending">Pending</button>
+                    <button type="button" class="adm-tab" data-filter="admitted">Admitted</button>
+                    <button type="button" class="adm-tab" data-filter="rejected">Not admitted</button>
+                    <button type="button" class="adm-tab" data-filter="all">All</button>
+                </div>
+
+                <div class="adm-toolbar">
+                    <input class="adm-input" id="searchBox" type="search" placeholder="Search name, reference, parent or phone">
+                    <button type="button" class="adm-btn-ghost" id="reloadList">Refresh</button>
+                </div>
+
+                <div id="appList"></div>
+                <p class="adm-msg" id="listMsg"></p>
+            </div>
+
+            <!-- Owner only -->
+            <div class="adm-card" id="settingsCard" style="display:none;">
+                <h2>School details on the letter</h2>
+                <p>These appear on every admission letter.</p>
+
+                <div class="adm-form adm-two">
+                    <div class="adm-field adm-full">
+                        <label for="sName">School name</label>
+                        <input id="sName" type="text" maxlength="150">
+                    </div>
+                    <div class="adm-field">
+                        <label for="sPrincipal">Principal / Head name (signs the letter)</label>
+                        <input id="sPrincipal" type="text" maxlength="120">
+                    </div>
+                    <div class="adm-field">
+                        <label for="sPhoneNo">School phone</label>
+                        <input id="sPhoneNo" type="text" maxlength="60">
+                    </div>
+                    <div class="adm-field adm-full">
+                        <label for="sAddress">School address</label>
+                        <input id="sAddress" type="text" maxlength="250">
+                    </div>
+                    <div class="adm-field">
+                        <label for="sSession">Admission session</label>
+                        <input id="sSession" type="text" maxlength="20" placeholder="2026/2027">
+                    </div>
+                    <div class="adm-field">
+                        <label for="sResume">Resumption date</label>
+                        <input id="sResume" type="date">
+                    </div>
+                    <div class="adm-full">
+                        <button type="button" id="saveSettings">Save details</button>
+                        <p class="adm-msg" id="settingsMsg"></p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="adm-card" id="staffCard" style="display:none;">
+                <h2>Who can approve admissions</h2>
+                <p>You (the school owner) can always approve. Switch on any approved staff member below to let
+                    them review and approve applications too. Staff join from the report generator's
+                    <strong>Staff access</strong> section; approve them there first.</p>
+                <div id="staffList"></div>
+                <p class="adm-msg" id="staffMsg"></p>
+            </div>
+
+        </div>
+
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="admissions-common.js"></script>
+    <script src="admissions.js"></script>
+
+</body>
+
+</html>
