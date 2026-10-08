@@ -523,6 +523,7 @@ html {
 
 #srg-features,
 #srg-how-it-works,
+#srg-parents,
 #authSection,
 #contactSection,
 #schoolInformationSection,
@@ -704,6 +705,86 @@ html {
 
 }
 
+
+/* =========================================
+   PARENTS & STUDENTS (menu + landing block)
+========================================= */
+.srg-menu a.srg-menu-public {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.srg-menu a.srg-menu-public small {
+    display: block;
+    font-weight: 400;
+    font-size: 0.8rem;
+    color: var(--srg-ink-soft);
+}
+
+.srg-menu li.srg-menu-note {
+    margin: 6px 0 0;
+    padding: 10px 12px;
+    font-size: 0.9rem;
+    line-height: 1.45;
+    color: var(--srg-ink-soft);
+    background: var(--srg-manila);
+    border-radius: var(--srg-radius);
+}
+
+.srg-portal {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 48px 24px 8px;
+}
+
+.srg-portal-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+}
+
+.srg-portal-card {
+    display: block;
+    background: var(--srg-paper);
+    border: 1px solid var(--srg-line);
+    border-top: 3px solid var(--srg-green);
+    border-radius: var(--srg-radius);
+    padding: 18px 20px;
+    text-decoration: none;
+    color: var(--srg-ink-soft);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+a.srg-portal-card:hover,
+a.srg-portal-card:focus-visible {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 22px -14px rgba(27, 42, 74, 0.45);
+}
+
+.srg-portal-card strong {
+    display: block;
+    font-family: 'Fraunces', Georgia, serif;
+    font-size: 1.1rem;
+    color: var(--srg-ink);
+    margin-bottom: 4px;
+}
+
+.srg-portal-card span {
+    font-size: 0.92rem;
+    line-height: 1.45;
+}
+
+.srg-portal-note {
+    border-top-color: var(--srg-line);
+}
+
+@media (max-width: 820px) {
+    .srg-portal-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
 /* =========================================
    STAFF ROLES
 ========================================= */
@@ -823,6 +904,11 @@ body.srg-staff-mode:not(.srg-role-subject) #srg-step-1b {
 
             <ul class="srg-menu" id="srgMenu">
 
+                <li class="srg-menu-label">Parents &amp; students</li>
+                <li><a href="result-checker.html" class="srg-menu-public">🔎 <span>Check result<small>Enter your details and result PIN</small></span></a></li>
+                <li class="srg-menu-note">📝 <strong>Admission:</strong> Contact the school for a link to fill the form for admission.</li>
+
+                <li class="srg-group-home srg-menu-label">For schools</li>
                 <li class="srg-group-home"><a href="#srg-features">What it handles</a></li>
                 <li class="srg-group-home"><a href="#srg-how-it-works">How it works</a></li>
 
@@ -874,6 +960,7 @@ body.srg-staff-mode:not(.srg-role-subject) #srg-step-1b {
                 <div class="srg-hero-actions">
                     <a href="#authSection" class="srg-btn srg-btn-primary">Get started</a>
                     <a href="#srg-how-it-works" class="srg-btn srg-btn-ghost">See how it works</a>
+                    <a href="#srg-parents" class="srg-btn srg-btn-ghost">Parents &amp; students</a>
                 </div>
             </div>
 
@@ -897,6 +984,31 @@ body.srg-staff-mode:not(.srg-role-subject) #srg-step-1b {
 
         </div>
     </header>
+
+
+    <!-- =========================================
+         PARENTS & STUDENTS
+    ========================================= -->
+
+    <section class="srg-portal" id="srg-parents" aria-labelledby="srg-portal-heading">
+
+        <h2 id="srg-portal-heading" class="srg-section-title">Parents &amp; students</h2>
+
+        <div class="srg-portal-grid">
+
+            <a class="srg-portal-card" href="result-checker.html">
+                <strong>🔎 Check result</strong>
+                <span>See your child's published result online. No sign-in needed.</span>
+            </a>
+
+            <div class="srg-portal-card srg-portal-note">
+                <strong>📝 Admission</strong>
+                <span>Contact the school for a link to fill the form for admission.</span>
+            </div>
+
+        </div>
+
+    </section>
 
 
     <!-- =========================================
