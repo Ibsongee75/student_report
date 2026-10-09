@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Post an Announcement</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: #f2f6f5; color: #1c2b29; }
+    header { background: #0b6b62; color: #fff; padding: 18px 16px; text-align: center; }
+    header h1 { margin: 0; font-size: 1.25rem; }
+    main { max-width: 640px; margin: 0 auto; padding: 16px; }
+    .card { background: #fff; border-radius: 10px; padding: 14px; margin-bottom: 12px; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+    label { display: block; font-weight: 600; margin: 10px 0 6px; }
+    input[type=text], input[type=date], textarea { width: 100%; padding: 11px; font: inherit; border: 1px solid #b9c7c4; border-radius: 8px; }
+    textarea { min-height: 140px; resize: vertical; }
+    button { font: inherit; padding: 11px 16px; border-radius: 8px; border: none; cursor: pointer; }
+    .primary { background: #0b6b62; color: #fff; font-weight: 600; width: 100%; margin-top: 14px; }
+    .primary:disabled { opacity: .6; }
+    .danger { background: #fff; color: #b00020; border: 1px solid #b00020; padding: 6px 12px; }
+    .status { margin-top: 10px; font-size: .95rem; }
+    .ok { color: #0b6b62; } .err { color: #b00020; }
+    .item h3 { margin: 0 0 4px; font-size: 1rem; }
+    .item small { color: #5b6e6b; display: block; margin-bottom: 8px; }
+    .item p { margin: 0 0 10px; white-space: pre-wrap; word-wrap: break-word; }
+    .back-bar { margin-bottom: 12px; }
+    .back-button { display: inline-block; padding: 9px 14px; background: #fff; color: #0b6b62; border: 1px solid #b9c7c4; border-radius: 8px; font-weight: 600; text-decoration: none; }
+    .back-button:active { background: #eaf4f2; }
+    .hidden { display: none; }
+    a { color: #0b6b62; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<header><h1>📢 Post an Announcement</h1></header>
+
+<main>
+
+    <!-- BACK TO LANDING PAGE -->
+    <div class="back-bar">
+        <a href="./" class="back-button">← Back to home</a>
+    </div>
+
+    <div class="card" id="gate">Checking your login…</div>
+
+    <section id="manager" class="hidden">
+        <div class="card">
+            <strong id="who"></strong>
+            <label for="annTitle">Title</label>
+            <input id="annTitle" type="text" maxlength="150" placeholder="e.g. Resumption date for second term">
+            <label for="annBody">Message</label>
+            <textarea id="annBody" maxlength="4000" placeholder="Write the announcement here…"></textarea>
+            <label for="annExpiry">Hide it after this date (optional)</label>
+            <input id="annExpiry" type="date">
+            <button class="primary" id="postButton" type="button">Post announcement</button>
+            <div class="status" id="postStatus"></div>
+        </div>
+
+        <h2 style="font-size:1.05rem;margin:18px 0 8px;">Posted announcements</h2>
+        <div id="myList"></div>
+    </section>
+</main>
+
+<script>
+const SUPABASE_URL = "https://nzeddvcmabfodmvmgsyg.supabase.co";
+const SUPABASE_KEY = "sb_publishable_Iaro_sV4r31wPbLycRB4Eg_OCDBy2u3";
+const WEBSITE_ID   = "ibsongee75";
+
+const IS_ANDROID_APP = !!(window.Capacitor &&
+    typeof window.Capacitor.isNativePlatform === "function" &&
+    window.Capacitor.isNativePlatform());
+
+const db = supabase.createClient(
+    SUPABASE_URL,
+    SUPABASE_KEY,
+    IS_ANDROID_APP
+        ? { auth: { lock: async function (n, t, fn) { return await fn(); } } }
+        : undefined
+);
+
+const $ = function (id) { return document.getElementById(id); };
+
+let schoolOwnerId = null;
+let myUserId = null;
+let isOwner = false;
+
+function gateMessage(html) { $("gate").innerHTML = html; }
+
+function setStatus(text, ok) {
+    const el = $("postStatus");
+    el.textContent = text;
+    el.className = "status " + (ok ? "ok" : "err");
+}
+
+async function init() {
+    const { data } = await db.auth.getSession();
+    const session = data && data.session;
+
+    if (!session) {
+        gateMessage("Please sign in first on the main page, then come back here.<br><br><a href=\"./\">Go to the main page</a>");
+        return;
+    }
+
+    myUserId = session.user.id;
+
+    /* Is this login an approved staff member of a school? */
+    const staff = await db
+        .from("school_staff")
+        .select("owner_user_id, status, full_name")
+        .eq("staff_user_id", myUserId)
+        .eq("website_id", WEBSITE_ID);
+
+    const rows = (staff.data || []);
+
+    if (rows.length === 0) {
+        /* No staff record: this is a school owner login. */
+        schoolOwnerId = myUserId;
+        isOwner = true;
+        $("who").textContent = "Posting as the school owner";
+    } else {
+        const approved = rows.find(function (r) { return r.status === "approved"; });
+        if (!approved) {
+            gateMessage("Your staff access is not active yet. Please contact the school owner.");
+            return;
+        }
+
+        /* The school owner decides which staff may post. */
+        const allowed = await db
+            .from("announcement_posters")
+            .select("id")
+            .eq("staff_user_id", myUserId)
+            .eq("owner_user_id", approved.owner_user_id)
+            .eq("website_id", WEBSITE_ID)
+            .limit(1);
+
+        if (allowed.error) {
+            console.error(allowed.error);
+            gateMessage("Could not check your permission. Please try again later.");
+            return;
+        }
+
+        if (!allowed.data || allowed.data.length === 0) {
+            gateMessage("You do not have permission to post announcements. Please ask the school owner to allow you under Staff access.");
+            return;
+        }
+
+        schoolOwnerId = approved.owner_user_id;
+        isOwner = false;
+        $("who").textContent = "Posting as " + (approved.full_name || "staff");
+    }
+
+    $("gate").classList.add("hidden");
+    $("manager").classList.remove("hidden");
+    await loadMine();
+}
+
+async function loadMine() {
+    const box = $("myList");
+    box.innerHTML = "";
+
+    const { data, error } = await db
+        .from("announcements")
+        .select("id, title, body, created_at, expires_at, created_by")
+        .eq("owner_user_id", schoolOwnerId)
+        .eq("website_id", WEBSITE_ID)
+        .order("created_at", { ascending: false })
+        .limit(50);
+
+    if (error) {
+        const p = document.createElement("p");
+        p.className = "err";
+        p.textContent = "Could not load announcements (has announcements.sql been run in Supabase?).";
+        box.appendChild(p);
+        console.error(error);
+        return;
+    }
+
+    if (!data || data.length === 0) {
+        const p = document.createElement("p");
+        p.textContent = "Nothing posted yet.";
+        box.appendChild(p);
+        return;
+    }
+
+    data.forEach(function (a) {
+        const card = document.createElement("div");
+        card.className = "card item";
+        const h = document.createElement("h3");
+        h.textContent = a.title;
+        const small = document.createElement("small");
+        const expired = a.expires_at && new Date(a.expires_at) <= new Date();
+        small.textContent = "Posted " + new Date(a.created_at).toLocaleDateString() +
+            (a.expires_at ? " · " + (expired ? "Expired " : "Hides ") + new Date(a.expires_at).toLocaleDateString() : "");
+        const p = document.createElement("p");
+        p.textContent = a.body;
+        const del = document.createElement("button");
+        del.type = "button";
+        del.className = "danger";
+        del.textContent = "Delete";
+        del.addEventListener("click", async function () {
+            if (!confirm("Delete this announcement?")) return;
+            del.disabled = true;
+            const res = await db.from("announcements").delete().eq("id", a.id);
+            if (res.error) { alert("Could not delete: " + res.error.message); del.disabled = false; return; }
+            loadMine();
+        });
+        card.appendChild(h); card.appendChild(small); card.appendChild(p);
+        /* the owner can delete any notice; staff only their own */
+        if (isOwner || a.created_by === myUserId) card.appendChild(del);
+        box.appendChild(card);
+    });
+}
+
+$("postButton").addEventListener("click", async function () {
+    const title = $("annTitle").value.trim();
+    const body = $("annBody").value.trim();
+    const expiry = $("annExpiry").value;
+
+    if (!title || !body) { setStatus("Please fill in the title and the message.", false); return; }
+
+    const row = {
+        owner_user_id: schoolOwnerId,
+        website_id: WEBSITE_ID,
+        title: title,
+        body: body,
+        created_by: myUserId,
+        is_published: true
+    };
+
+    if (expiry) {
+        /* hide at the end of the chosen day (local time) */
+        const end = new Date(expiry + "T23:59:59");
+        row.expires_at = end.toISOString();
+    }
+
+    $("postButton").disabled = true;
+    setStatus("Posting…", true);
+
+    const { error } = await db.from("announcements").insert(row);
+
+    $("postButton").disabled = false;
+
+    if (error) {
+        console.error(error);
+        setStatus("Could not post: " + error.message, false);
+        return;
+    }
+
+    $("annTitle").value = "";
+    $("annBody").value = "";
+    $("annExpiry").value = "";
+    setStatus("✅ Announcement posted. Parents can now see it.", true);
+    loadMine();
+});
+
+init();
+</script>
+</body>
+</html>

@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>School Announcements</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: #f2f6f5; color: #1c2b29; }
+    header { background: #0b6b62; color: #fff; padding: 18px 16px; text-align: center; }
+    header h1 { margin: 0; font-size: 1.25rem; }
+    header p { margin: 4px 0 0; font-size: .9rem; opacity: .9; }
+    main { max-width: 640px; margin: 0 auto; padding: 16px; }
+    .card { background: #fff; border-radius: 10px; padding: 14px; margin-bottom: 12px; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+    label { display: block; font-weight: 600; margin-bottom: 6px; }
+    input[type=search] { width: 100%; padding: 12px; font-size: 1rem; border: 1px solid #b9c7c4; border-radius: 8px; }
+    .school { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; background: #fff; border: 1px solid #dbe5e3; border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; cursor: pointer; font: inherit; color: inherit; }
+    .school:active { background: #eaf4f2; }
+    .logo { width: 44px; height: 44px; border-radius: 8px; object-fit: contain; background: #f2f6f5; flex: none; }
+    .logo-ph { width: 44px; height: 44px; border-radius: 8px; background: #e3eeec; display: flex; align-items: center; justify-content: center; font-size: 22px; flex: none; }
+    .school strong { display: block; }
+    .school small { color: #5b6e6b; }
+    .note { color: #5b6e6b; font-size: .92rem; text-align: center; padding: 10px; }
+    .error { color: #b00020; }
+    .back { background: none; border: none; color: #0b6b62; font-size: 1rem; padding: 4px 0 12px; cursor: pointer; font-weight: 600; }
+    .head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+    .head h2 { margin: 0; font-size: 1.1rem; }
+    .head small { color: #5b6e6b; }
+    .ann h3 { margin: 0 0 4px; font-size: 1.02rem; }
+    .ann .meta { font-size: .8rem; color: #5b6e6b; margin-bottom: 8px; }
+    .ann .text { white-space: pre-wrap; word-wrap: break-word; line-height: 1.45; }
+    .back-bar { margin-bottom: 12px; }
+    .back-button { display: inline-block; padding: 9px 14px; background: #fff; color: #0b6b62; border: 1px solid #b9c7c4; border-radius: 8px; font-weight: 600; text-decoration: none; }
+    .back-button:active { background: #eaf4f2; }
+    .hidden { display: none; }
+</style>
+</head>
+<body>
+
+<header>
+    <h1>📢 School Announcements</h1>
+    <p>Find your school to see its latest notices</p>
+</header>
+
+<main>
+
+    <!-- BACK TO LANDING PAGE -->
+    <div class="back-bar">
+        <a href="./" class="back-button">← Back to home</a>
+    </div>
+
+
+    <!-- Step 1: search -->
+    <section id="searchView">
+        <div class="card">
+            <label for="schoolSearch">Search for your school</label>
+            <input id="schoolSearch" type="search" placeholder="Type your school's name…" autocomplete="off">
+        </div>
+        <div id="schoolResults"></div>
+    </section>
+
+    <!-- Step 2: announcements -->
+    <section id="annView" class="hidden">
+        <button class="back" id="backButton" type="button">← Choose another school</button>
+        <div class="card head" id="schoolHead"></div>
+        <div id="annList"></div>
+    </section>
+
+</main>
+
+<script>
+/* Same Supabase project as the report site. */
+const SUPABASE_URL = "https://nzeddvcmabfodmvmgsyg.supabase.co";
+const SUPABASE_KEY = "sb_publishable_Iaro_sV4r31wPbLycRB4Eg_OCDBy2u3";
+const WEBSITE_ID   = "ibsongee75";
+
+const IS_ANDROID_APP = !!(window.Capacitor &&
+    typeof window.Capacitor.isNativePlatform === "function" &&
+    window.Capacitor.isNativePlatform());
+
+const db = supabase.createClient(
+    SUPABASE_URL,
+    SUPABASE_KEY,
+    IS_ANDROID_APP
+        ? { auth: { lock: async function (n, t, fn) { return await fn(); } } }
+        : undefined
+);
+
+const $ = function (id) { return document.getElementById(id); };
+
+function safeImageSrc(value) {
+    const v = String(value || "");
+    return (/^data:image\/(png|jpe?g|webp|gif);base64,/i.test(v) || /^https:\/\//i.test(v)) ? v : "";
+}
+
+function logoNode(src) {
+    const safe = safeImageSrc(src);
+    if (safe) {
+        const img = document.createElement("img");
+        img.className = "logo";
+        img.alt = "";
+        img.src = safe;
+        return img;
+    }
+    const ph = document.createElement("div");
+    ph.className = "logo-ph";
+    ph.textContent = "🏫";
+    return ph;
+}
+
+function showNote(container, text, isError) {
+    container.innerHTML = "";
+    const p = document.createElement("p");
+    p.className = "note" + (isError ? " error" : "");
+    p.textContent = text;
+    container.appendChild(p);
+}
+
+/* ---------- school search ---------- */
+let searchTimer = null;
+let searchCounter = 0;
+
+$("schoolSearch").addEventListener("input", function () {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(runSearch, 350);
+});
+
+async function runSearch() {
+    const box = $("schoolResults");
+    /* strip characters that have a special meaning in the filter */
+    const term = $("schoolSearch").value.trim().replace(/[%_,()*\\]/g, " ").replace(/\s+/g, " ").trim();
+
+    if (term.length < 2) {
+        showNote(box, "Type at least 2 letters of your school's name.", false);
+        return;
+    }
+
+    const myRun = ++searchCounter;
+    showNote(box, "Searching…", false);
+
+    const { data, error } = await db
+        .from("public_schools")
+        .select("school_id, school_name, school_address, school_logo")
+        .eq("website_id", WEBSITE_ID)
+        .ilike("school_name", "%" + term + "%")
+        .order("school_name", { ascending: true })
+        .limit(15);
+
+    if (myRun !== searchCounter) return;   /* a newer search is running */
+
+    if (error) {
+        console.error(error);
+        showNote(box, "Could not search right now. Please check your internet and try again.", true);
+        return;
+    }
+
+    if (!data || data.length === 0) {
+        showNote(box, "No school found. Check the spelling, or ask your school for the exact name.", false);
+        return;
+    }
+
+    box.innerHTML = "";
+    data.forEach(function (school) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "school";
+        btn.appendChild(logoNode(school.school_logo));
+        const info = document.createElement("div");
+        const name = document.createElement("strong");
+        name.textContent = school.school_name;
+        info.appendChild(name);
+        if (school.school_address) {
+            const addr = document.createElement("small");
+            addr.textContent = school.school_address;
+            info.appendChild(addr);
+        }
+        btn.appendChild(info);
+        btn.addEventListener("click", function () { openSchool(school); });
+        box.appendChild(btn);
+    });
+}
+
+/* ---------- announcements ---------- */
+async function openSchool(school) {
+    $("searchView").classList.add("hidden");
+    $("annView").classList.remove("hidden");
+    window.scrollTo(0, 0);
+
+    const head = $("schoolHead");
+    head.innerHTML = "";
+    head.appendChild(logoNode(school.school_logo));
+    const info = document.createElement("div");
+    const h = document.createElement("h2");
+    h.textContent = school.school_name;
+    info.appendChild(h);
+    if (school.school_address) {
+        const s = document.createElement("small");
+        s.textContent = school.school_address;
+        info.appendChild(s);
+    }
+    head.appendChild(info);
+
+    const list = $("annList");
+    showNote(list, "Loading announcements…", false);
+
+    const { data, error } = await db
+        .from("announcements")
+        .select("id, title, body, created_at, expires_at")
+        .eq("owner_user_id", school.school_id)
+        .eq("website_id", WEBSITE_ID)
+        .order("created_at", { ascending: false })
+        .limit(30);
+
+    if (error) {
+        console.error(error);
+        showNote(list, "Could not load announcements. Please try again.", true);
+        return;
+    }
+
+    if (!data || data.length === 0) {
+        showNote(list, "No announcements from this school right now.", false);
+        return;
+    }
+
+    list.innerHTML = "";
+    data.forEach(function (a) {
+        const card = document.createElement("article");
+        card.className = "card ann";
+        const t = document.createElement("h3");
+        t.textContent = a.title;
+        const meta = document.createElement("div");
+        meta.className = "meta";
+        meta.textContent = "Posted " + new Date(a.created_at).toLocaleDateString(undefined,
+            { day: "numeric", month: "long", year: "numeric" });
+        const body = document.createElement("div");
+        body.className = "text";
+        body.textContent = a.body;
+        card.appendChild(t);
+        card.appendChild(meta);
+        card.appendChild(body);
+        list.appendChild(card);
+    });
+}
+
+$("backButton").addEventListener("click", function () {
+    $("annView").classList.add("hidden");
+    $("searchView").classList.remove("hidden");
+    $("annList").innerHTML = "";
+});
+
+showNote($("schoolResults"), "Type at least 2 letters of your school's name.", false);
+</script>
+</body>
+</html>
