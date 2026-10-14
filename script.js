@@ -1004,6 +1004,268 @@ function guardedClick(handler) {
 }
 
 /* =========================================================
+   COLLAPSIBLE SECTIONS  (minimize / expand arrow)
+   A small arrow button is added to the title of a section.
+   Click the arrow (or the title) to minimize the section down to
+   its title, and click again to open it. Only the display is
+   changed - no data, buttons or saved settings are touched.
+   ========================================================= */
+
+const SRG_COLLAPSE_CARDS = "section, .card, fieldset, details, .step-card, .panel";
+const SRG_COLLAPSE_HEADINGS = "h1, h2, h3, h4, h5, h6";
+const SRG_COLLAPSE_BUSY = "button, input, select, textarea, table, #studentPreviewContainer";
+
+function srgInjectCollapseStyle() {
+
+    if (document.getElementById("srgCollapseStyle")) return;
+
+    const style = document.createElement("style");
+    style.id = "srgCollapseStyle";
+    style.textContent =
+        ".srg-collapse-title{position:relative;padding-right:44px;cursor:pointer;-webkit-user-select:none;user-select:none;}" +
+        ".srg-collapse-btn{position:absolute;right:0;top:50%;transform:translateY(-50%);" +
+        "width:32px !important;height:32px !important;min-width:0 !important;padding:0 !important;margin:0 !important;" +
+        "display:inline-flex !important;align-items:center;justify-content:center;" +
+        "background:transparent !important;box-shadow:none !important;color:inherit !important;" +
+        "border:1px solid rgba(128,128,128,0.55) !important;border-radius:50% !important;cursor:pointer;line-height:1;}" +
+        ".srg-collapse-btn:hover{background:rgba(128,128,128,0.18) !important;}" +
+        ".srg-collapse-btn svg{width:18px;height:18px;display:block;transition:transform 0.2s ease;transform:rotate(180deg);}" +
+        ".srg-collapse-btn[aria-expanded=\"false\"] svg{transform:rotate(0deg);}" +
+        ".srg-collapsed-item{display:none !important;}" +
+        "@media print{.srg-collapse-btn{display:none !important;}}";
+    document.head.appendChild(style);
+
+}
+
+/* Puts the arrow in `heading`. getItems() returns the elements that
+   are hidden while the section is minimized. */
+function srgMakeCollapsible(heading, getItems) {
+
+    if (!heading || heading.getAttribute("data-srg-collapsible") === "1") return null;
+
+    srgInjectCollapseStyle();
+
+    heading.setAttribute("data-srg-collapsible", "1");
+    heading.classList.add("srg-collapse-title");
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "srg-collapse-btn";
+    button.innerHTML =
+        "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.5\" " +
+        "stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\">" +
+        "<polyline points=\"6 9 12 15 18 9\"></polyline></svg>";
+    heading.appendChild(button);
+
+    let collapsed = false;
+    let hiddenItems = [];
+
+    function apply() {
+
+        if (collapsed) {
+            hiddenItems = getItems();
+            hiddenItems.forEach(function (el) { el.classList.add("srg-collapsed-item"); });
+        } else {
+            hiddenItems.concat(getItems()).forEach(function (el) { el.classList.remove("srg-collapsed-item"); });
+            hiddenItems = [];
+        }
+
+        const label = collapsed ? "Expand section" : "Minimize section";
+        button.setAttribute("aria-expanded", collapsed ? "false" : "true");
+        button.setAttribute("aria-label", label);
+        button.title = label;
+
+    }
+
+    function toggle(event) {
+        if (event) {
+            event.preventDefault();
+            event.stopPropagation();
+        }
+        collapsed = !collapsed;
+        apply();
+    }
+
+    button.addEventListener("click", toggle);
+
+    heading.addEventListener("click", function (event) {
+        if (event.target.closest(".srg-collapse-btn")) return;
+        if (event.target.closest("a, input, select, textarea")) return;
+        toggle(event);
+    });
+
+    apply();
+
+    return { toggle: toggle };
+
+}
+
+function srgFollowingSiblings(head) {
+
+    const items = [];
+    let node = head.nextElementSibling;
+
+    while (node) {
+        if (node.tagName !== "STYLE" && node.tagName !== "SCRIPT") items.push(node);
+        node = node.nextElementSibling;
+    }
+
+    return items;
+
+}
+
+/* Whole card: arrow on the card's first title, hides everything under it. */
+function srgCollapsibleCard(card) {
+
+    if (!card) return null;
+
+    const heading = card.querySelector(SRG_COLLAPSE_HEADINGS);
+
+    if (!heading || heading.getAttribute("data-srg-collapsible") === "1") return null;
+
+    let head = heading;
+    while (head.parentElement && head.parentElement !== card) head = head.parentElement;
+
+    if (head.parentElement !== card) return null;
+
+    return srgMakeCollapsible(heading, function () { return srgFollowingSiblings(head); });
+
+}
+
+function srgSafeCard(el) {
+
+    const card = el ? el.closest(SRG_COLLAPSE_CARDS) : null;
+
+    if (!card || card.id === "appSection" || card.id === "authSection" || card.matches("main, body")) return null;
+
+    return card;
+
+}
+
+/* A part of a page: arrow on the title just above `anchorList`, hides only
+   what lies between that title and the last anchor. If no suitable title
+   exists (or hiding would also hide other buttons/inputs), a new title
+   called `title` is added above the anchors and only the anchors are hidden. */
+function srgCollapsibleBlock(anchorList, title) {
+
+    const anchors = anchorList.filter(Boolean);
+
+    if (!anchors.length) return null;
+
+    anchors.sort(function (a, b) {
+        if (a === b) return 0;
+        return (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) ? -1 : 1;
+    });
+
+    const primary = anchors[0];
+
+    function insideAnchor(el) {
+        return anchors.some(function (a) { return a.contains(el); });
+    }
+
+    const card = srgSafeCard(primary);
+    let heading = null;
+
+    if (card) {
+        const all = Array.from(card.querySelectorAll(SRG_COLLAPSE_HEADINGS));
+        for (let i = all.length - 1; i >= 0; i--) {
+            if (!all[i].contains(primary) && (all[i].compareDocumentPosition(primary) & Node.DOCUMENT_POSITION_FOLLOWING)) {
+                heading = all[i];
+                break;
+            }
+        }
+    }
+
+    if (heading && heading.getAttribute("data-srg-collapsible") === "1") return null;
+
+    let items = null;
+
+    if (heading) {
+
+        let host = heading.parentElement;
+        while (host && !anchors.every(function (a) { return host.contains(a); })) host = host.parentElement;
+
+        if (host) {
+
+            const childOf = function (el) {
+                let n = el;
+                while (n && n.parentElement !== host) n = n.parentElement;
+                return n;
+            };
+
+            const kids = Array.from(host.children);
+            const startIndex = kids.indexOf(childOf(heading));
+            const endIndex = Math.max.apply(null, anchors.map(function (a) { return kids.indexOf(childOf(a)); }));
+
+            if (startIndex >= 0 && endIndex > startIndex) {
+
+                const between = kids.slice(startIndex + 1, endIndex + 1).filter(function (el) {
+                    return el.tagName !== "STYLE" && el.tagName !== "SCRIPT";
+                });
+
+                const clean = between.every(function (el) {
+                    const busy = Array.from(el.querySelectorAll(SRG_COLLAPSE_BUSY));
+                    if (el.matches(SRG_COLLAPSE_BUSY)) busy.push(el);
+                    return busy.every(insideAnchor);
+                });
+
+                if (clean) items = between;
+
+            }
+
+        }
+
+    }
+
+    if (!items) {
+        heading = document.createElement("h3");
+        heading.textContent = title;
+        primary.parentNode.insertBefore(heading, primary);
+        items = anchors;
+    }
+
+    return srgMakeCollapsible(heading, function () { return items; });
+
+}
+
+function initializeCollapsibleSections() {
+
+    function byId(id) { return document.getElementById(id); }
+
+    function safely(fn) {
+        try { fn(); } catch (error) { console.error("Collapsible section error:", error); }
+    }
+
+    /* School Subjects */
+    safely(function () { srgCollapsibleCard(byId("subjectManager")); });
+
+    /* Staff Access */
+    safely(function () { srgCollapsibleCard(byId("staffManagementSection")); });
+
+    /* Manage Classes */
+    safely(function () {
+        srgCollapsibleBlock(
+            ["newClassNameInput", "addClassButton", "classManagerStatus", "classListContainer"].map(byId),
+            "Manage Classes"
+        );
+    });
+
+    /* School Information */
+    safely(function () {
+        srgCollapsibleBlock(
+            [
+                "schoolNameInput", "schoolAddressInput", "schoolLogoInput",
+                "schoolLogoPreview", "removeSchoolLogo",
+                "saveSchoolInformation", "schoolInformationStatus"
+            ].map(byId),
+            "School Information"
+        );
+    });
+
+}
+
+
+/* =========================================================
    INITIALIZE
    ========================================================= */
 
@@ -1026,6 +1288,8 @@ document.addEventListener(
         restoreAppData();
 
         createAutoCommentManager();
+
+        initializeCollapsibleSections();
 
         loadSchoolInformation();
 
