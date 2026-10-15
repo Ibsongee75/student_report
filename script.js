@@ -1032,14 +1032,304 @@ function srgInjectCollapseStyle() {
         ".srg-collapse-btn svg{width:18px;height:18px;display:block;transition:transform 0.2s ease;transform:rotate(180deg);}" +
         ".srg-collapse-btn[aria-expanded=\"false\"] svg{transform:rotate(0deg);}" +
         ".srg-collapsed-item{display:none !important;}" +
-        "@media print{.srg-collapse-btn{display:none !important;}}";
+        ".srg-has-lock{padding-right:84px;}" +
+        ".srg-lock-btn{position:absolute;right:38px;top:50%;transform:translateY(-50%);width:32px !important;height:32px !important;min-width:0 !important;padding:0 !important;margin:0 !important;display:inline-flex !important;align-items:center;justify-content:center;background:transparent !important;box-shadow:none !important;border:1px solid rgba(128,128,128,0.55) !important;border-radius:50% !important;cursor:pointer;font-size:15px;line-height:1;}" +
+        ".srg-lock-btn:hover{background:rgba(128,128,128,0.18) !important;}" +
+        ".srg-modal-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.55);z-index:100000;display:flex;align-items:center;justify-content:center;padding:16px;}" +
+        ".srg-modal{background:#fff;color:#222;border-radius:12px;width:100%;max-width:360px;padding:18px;box-shadow:0 10px 30px rgba(0,0,0,0.35);font-family:inherit;}" +
+        ".srg-modal h3{margin:0 0 8px;font-size:18px;color:#222;}" +
+        ".srg-modal p{margin:0 0 12px;font-size:14px;line-height:1.4;color:#444;}" +
+        ".srg-modal input{display:block;width:100%;box-sizing:border-box;margin:0 0 10px;padding:10px;font-size:16px;border:1px solid #bbb;border-radius:8px;background:#fff;color:#222;}" +
+        ".srg-modal-error{min-height:18px;margin:0 0 8px;font-size:13px;color:#c62828;}" +
+        ".srg-modal-row{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;}" +
+        ".srg-modal-btn{padding:9px 14px;border-radius:8px;border:1px solid #bbb;font-size:14px;cursor:pointer;width:auto !important;margin:0 !important;}" +
+        ".srg-modal-cancel{background:#f1f1f1;color:#222;}" +
+        ".srg-modal-danger{background:#fff;color:#c62828;border-color:#c62828;}" +
+        ".srg-modal-ok{background:#1565c0;color:#fff;border-color:#1565c0;}" +
+        ".srg-modal-ok:disabled{opacity:0.6;}" +
+        "@media print{.srg-collapse-btn,.srg-lock-btn,.srg-modal-overlay{display:none !important;}}";
     document.head.appendChild(style);
+
+}
+
+/* =========================================================
+   SECTION PASSWORD
+   The school owner can set one password. Sections marked
+   `protect` (School Subjects, Staff Access, Manage Classes,
+   School Information) then ask for it before they open.
+   Student Photos is never protected.
+   Only a salted SHA-256 hash is stored (inside the school
+   settings, so it follows the school login on every device).
+   Once the right password is typed the sections stay open for
+   this session; logging out or refreshing locks them again.
+   ========================================================= */
+
+const SRG_PROTECTED = { protect: true };
+const SRG_PROTECTED_WITH_LOCK = { protect: true, passwordControl: true };
+
+let srgSectionsUnlocked = false;
+let srgProtectedClosers = [];
+let srgPasswordDialogOpen = false;
+
+function srgPasswordRecord() {
+    const record = typeof reportSettings !== "undefined" && reportSettings ? reportSettings.sectionPassword : null;
+    return record && record.hash && record.salt ? record : null;
+}
+
+function srgSectionsAreLocked() {
+    return !!srgPasswordRecord() && !srgSectionsUnlocked;
+}
+
+/* Closes every protected section and asks for the password again. */
+function srgLockAllSections() {
+    srgSectionsUnlocked = false;
+    srgProtectedClosers.forEach(function (close) {
+        try { close(); } catch (error) { console.error(error); }
+    });
+}
+
+async function srgHashPassword(password, salt) {
+
+    if (!window.crypto || !window.crypto.subtle) {
+        throw new Error("This browser cannot check passwords (a secure https connection is needed).");
+    }
+
+    const data = new TextEncoder().encode(String(salt) + "|" + WEBSITE_ID + "|" + password);
+    const digest = await window.crypto.subtle.digest("SHA-256", data);
+
+    return Array.from(new Uint8Array(digest)).map(function (b) {
+        return b.toString(16).padStart(2, "0");
+    }).join("");
+
+}
+
+function srgRandomSalt() {
+    const bytes = new Uint8Array(16);
+    window.crypto.getRandomValues(bytes);
+    return Array.from(bytes).map(function (b) { return b.toString(16).padStart(2, "0"); }).join("");
+}
+
+/* Password pop-up. Resolves {action:"ok", value}, {action:"secondary"} or null (cancelled).
+   config: title, message, confirmText, confirmField, secondaryText, verify(value, confirm) -> error text or "" */
+function srgPasswordDialog(config) {
+
+    if (srgPasswordDialogOpen) return Promise.resolve(null);
+
+    srgPasswordDialogOpen = true;
+    srgInjectCollapseStyle();
+
+    return new Promise(function (resolve) {
+
+        const overlay = document.createElement("div");
+        overlay.className = "srg-modal-overlay";
+
+        const box = document.createElement("div");
+        box.className = "srg-modal";
+        box.setAttribute("role", "dialog");
+        box.setAttribute("aria-modal", "true");
+
+        const title = document.createElement("h3");
+        title.textContent = config.title || "Password";
+        box.appendChild(title);
+
+        if (config.message) {
+            const message = document.createElement("p");
+            message.textContent = config.message;
+            box.appendChild(message);
+        }
+
+        function makeInput(placeholder) {
+            const input = document.createElement("input");
+            input.type = "password";
+            input.placeholder = placeholder;
+            input.autocomplete = "new-password";
+            input.setAttribute("autocapitalize", "off");
+            input.setAttribute("autocorrect", "off");
+            box.appendChild(input);
+            return input;
+        }
+
+        const input = makeInput("Password");
+        const confirmInput = config.confirmField ? makeInput("Confirm password") : null;
+
+        const error = document.createElement("div");
+        error.className = "srg-modal-error";
+        box.appendChild(error);
+
+        const row = document.createElement("div");
+        row.className = "srg-modal-row";
+        box.appendChild(row);
+
+        function makeButton(text, className) {
+            const b = document.createElement("button");
+            b.type = "button";
+            b.textContent = text;
+            b.className = className;
+            row.appendChild(b);
+            return b;
+        }
+
+        const cancelButton = makeButton("Cancel", "srg-modal-btn srg-modal-cancel");
+        const secondaryButton = config.secondaryText ? makeButton(config.secondaryText, "srg-modal-btn srg-modal-danger") : null;
+        const okButton = makeButton(config.confirmText || "OK", "srg-modal-btn srg-modal-ok");
+
+        overlay.appendChild(box);
+        document.body.appendChild(overlay);
+
+        let busy = false;
+
+        function close(result) {
+            document.removeEventListener("keydown", onKey, true);
+            overlay.remove();
+            srgPasswordDialogOpen = false;
+            resolve(result);
+        }
+
+        async function submit() {
+
+            if (busy) return;
+            busy = true;
+            okButton.disabled = true;
+            error.textContent = "";
+
+            let problem = "";
+
+            try {
+                problem = config.verify ? await config.verify(input.value, confirmInput ? confirmInput.value : "") : "";
+            } catch (err) {
+                problem = (err && err.message) ? err.message : "Something went wrong.";
+            }
+
+            busy = false;
+            okButton.disabled = false;
+
+            if (problem) {
+                error.textContent = problem;
+                input.focus();
+                input.select();
+                return;
+            }
+
+            close({ action: "ok", value: input.value });
+
+        }
+
+        function onKey(event) {
+            if (event.key === "Escape") {
+                event.preventDefault();
+                close(null);
+            } else if (event.key === "Enter" && overlay.contains(document.activeElement)) {
+                event.preventDefault();
+                submit();
+            }
+        }
+
+        document.addEventListener("keydown", onKey, true);
+        okButton.addEventListener("click", submit);
+        cancelButton.addEventListener("click", function () { close(null); });
+        if (secondaryButton) secondaryButton.addEventListener("click", function () { close({ action: "secondary" }); });
+
+        setTimeout(function () { input.focus(); }, 50);
+
+    });
+
+}
+
+/* Asks for the password so a protected section can open. Resolves true when allowed. */
+async function srgRequestUnlock() {
+
+    const record = srgPasswordRecord();
+
+    if (!record || srgSectionsUnlocked) return true;
+
+    const result = await srgPasswordDialog({
+        title: "🔒 Protected section",
+        message: "Enter the password to open this section.",
+        confirmText: "Open",
+        verify: async function (value) {
+            if (!value) return "Enter the password.";
+            const hash = await srgHashPassword(value, record.salt);
+            return hash === record.hash ? "" : "Wrong password. Try again.";
+        }
+    });
+
+    if (result && result.action === "ok") {
+        srgSectionsUnlocked = true;
+        return true;
+    }
+
+    return false;
+
+}
+
+/* The 🔒 button next to School Information: set, change or remove the password. */
+async function srgManagePassword() {
+
+    if (typeof staffContext !== "undefined" && staffContext) {
+        alert("Only the school owner can set or change the section password.");
+        return;
+    }
+
+    const record = srgPasswordRecord();
+
+    if (record && !srgSectionsUnlocked) {
+
+        const current = await srgPasswordDialog({
+            title: "🔒 Section password",
+            message: "Enter the current password to continue.",
+            confirmText: "Continue",
+            verify: async function (value) {
+                if (!value) return "Enter the current password.";
+                const hash = await srgHashPassword(value, record.salt);
+                return hash === record.hash ? "" : "Wrong password. Try again.";
+            }
+        });
+
+        if (!current || current.action !== "ok") return;
+
+        srgSectionsUnlocked = true;
+
+    }
+
+    const result = await srgPasswordDialog({
+        title: record ? "Change section password" : "Set section password",
+        message: "School Subjects, Staff Access, Manage Classes and School Information will ask for this password before they open. Student Photos stays open.",
+        confirmText: "Save password",
+        confirmField: true,
+        secondaryText: record ? "Remove password" : "",
+        verify: function (value, confirm) {
+            if (value.length < 4) return "Use at least 4 characters.";
+            if (value !== confirm) return "The two passwords do not match.";
+            return "";
+        }
+    });
+
+    if (!result) return;
+
+    if (result.action === "secondary") {
+        delete reportSettings.sectionPassword;
+        srgSectionsUnlocked = false;
+        saveAppData();
+        alert("✅ Section password removed. The sections now open freely.");
+        return;
+    }
+
+    const salt = srgRandomSalt();
+    const hash = await srgHashPassword(result.value, salt);
+
+    reportSettings.sectionPassword = { salt: salt, hash: hash };
+    srgSectionsUnlocked = true;
+    saveAppData();
+
+    alert("✅ Section password saved. Staff will need it to open the protected sections.");
 
 }
 
 /* Puts the arrow in `heading`. getItems() returns the elements that
    are hidden while the section is minimized. */
-function srgMakeCollapsible(heading, getItems, startCollapsed) {
+function srgMakeCollapsible(heading, getItems, options) {
+
+    options = options || {};
 
     if (!heading || heading.getAttribute("data-srg-collapsible") === "1") return null;
 
@@ -1057,8 +1347,28 @@ function srgMakeCollapsible(heading, getItems, startCollapsed) {
         "<polyline points=\"6 9 12 15 18 9\"></polyline></svg>";
     heading.appendChild(button);
 
-    /* Sections start closed; pass startCollapsed = false to start open. */
-    let collapsed = startCollapsed !== false;
+    if (options.passwordControl) {
+
+        const lock = document.createElement("button");
+        lock.type = "button";
+        lock.className = "srg-lock-btn";
+        lock.textContent = "🔒";
+        lock.title = "Set or change the section password";
+        lock.setAttribute("aria-label", "Set or change the section password");
+
+        heading.classList.add("srg-has-lock");
+        heading.appendChild(lock);
+
+        lock.addEventListener("click", function (event) {
+            event.preventDefault();
+            event.stopPropagation();
+            srgManagePassword();
+        });
+
+    }
+
+    /* Sections start closed. */
+    let collapsed = true;
     let hiddenItems = [];
 
     function apply() {
@@ -1083,8 +1393,26 @@ function srgMakeCollapsible(heading, getItems, startCollapsed) {
             event.preventDefault();
             event.stopPropagation();
         }
+        if (collapsed && options.protect && srgSectionsAreLocked()) {
+            srgRequestUnlock().then(function (allowed) {
+                if (!allowed) return;
+                collapsed = false;
+                apply();
+            });
+            return;
+        }
+
         collapsed = !collapsed;
         apply();
+    }
+
+    if (options.protect) {
+        srgProtectedClosers.push(function () {
+            if (!collapsed) {
+                collapsed = true;
+                apply();
+            }
+        });
     }
 
     button.addEventListener("click", toggle);
@@ -1097,7 +1425,7 @@ function srgMakeCollapsible(heading, getItems, startCollapsed) {
 
     apply();
 
-    return { toggle: toggle };
+    return { toggle: toggle, heading: heading };
 
 }
 
@@ -1116,7 +1444,7 @@ function srgFollowingSiblings(head) {
 }
 
 /* Whole card: arrow on the card's first title, hides everything under it. */
-function srgCollapsibleCard(card) {
+function srgCollapsibleCard(card, options) {
 
     if (!card) return null;
 
@@ -1129,7 +1457,7 @@ function srgCollapsibleCard(card) {
 
     if (head.parentElement !== card) return null;
 
-    return srgMakeCollapsible(heading, function () { return srgFollowingSiblings(head); });
+    return srgMakeCollapsible(heading, function () { return srgFollowingSiblings(head); }, options);
 
 }
 
@@ -1147,7 +1475,7 @@ function srgSafeCard(el) {
    what lies between that title and the last anchor. If no suitable title
    exists (or hiding would also hide other buttons/inputs), a new title
    called `title` is added above the anchors and only the anchors are hidden. */
-function srgCollapsibleBlock(anchorList, title) {
+function srgCollapsibleBlock(anchorList, title, options) {
 
     const anchors = anchorList.filter(Boolean);
 
@@ -1225,7 +1553,7 @@ function srgCollapsibleBlock(anchorList, title) {
         items = anchors;
     }
 
-    return srgMakeCollapsible(heading, function () { return items; });
+    return srgMakeCollapsible(heading, function () { return items; }, options);
 
 }
 
@@ -1238,16 +1566,17 @@ function initializeCollapsibleSections() {
     }
 
     /* School Subjects */
-    safely(function () { srgCollapsibleCard(byId("subjectManager")); });
+    safely(function () { srgCollapsibleCard(byId("subjectManager"), SRG_PROTECTED); });
 
     /* Staff Access */
-    safely(function () { srgCollapsibleCard(byId("staffManagementSection")); });
+    safely(function () { srgCollapsibleCard(byId("staffManagementSection"), SRG_PROTECTED); });
 
     /* Manage Classes */
     safely(function () {
         srgCollapsibleBlock(
             ["newClassNameInput", "addClassButton", "classManagerStatus", "classListContainer"].map(byId),
-            "Manage Classes"
+            "Manage Classes",
+            SRG_PROTECTED
         );
     });
 
@@ -1259,7 +1588,8 @@ function initializeCollapsibleSections() {
                 "schoolLogoPreview", "removeSchoolLogo",
                 "saveSchoolInformation", "schoolInformationStatus"
             ].map(byId),
-            "School Information"
+            "School Information",
+            SRG_PROTECTED_WITH_LOCK
         );
     });
 
@@ -2305,6 +2635,70 @@ async function forgotPassword() {
    UPDATE PASSWORD
    ========================================================= */
 
+/* After the owner finishes the "Forgot password" email reset, the section
+   password (the lock on the collapse-arrow sections) is cleared too, so the
+   owner is never locked out of their own school. Staff logins are skipped on
+   purpose - they must not be able to unlock the sections by resetting their
+   own login password. Any doubt or error means nothing is cleared. */
+async function srgClearSectionPasswordAfterReset(user) {
+
+    try {
+
+        if (!user || !user.id) return false;
+
+        const staffCheck = await supabaseClient
+            .from("school_staff")
+            .select("id")
+            .eq("staff_user_id", user.id)
+            .eq("website_id", WEBSITE_ID)
+            .limit(1);
+
+        if (staffCheck.error || (staffCheck.data && staffCheck.data.length > 0)) return false;
+
+        const profile = await supabaseClient
+            .from(SCHOOL_PROFILE_TABLE)
+            .select("report_settings")
+            .eq("owner_user_id", user.id)
+            .eq("website_id", WEBSITE_ID)
+            .maybeSingle();
+
+        if (profile.error || !profile.data) return false;
+
+        const settings = Object.assign({}, profile.data.report_settings || {});
+
+        if (!settings.sectionPassword) return false;
+
+        delete settings.sectionPassword;
+
+        const result = await supabaseClient
+            .from(SCHOOL_PROFILE_TABLE)
+            .update({ report_settings: settings, updated_at: new Date().toISOString() })
+            .eq("owner_user_id", user.id)
+            .eq("website_id", WEBSITE_ID);
+
+        if (result.error) {
+            console.error("Section password reset error:", result.error);
+            return false;
+        }
+
+        delete reportSettings.sectionPassword;
+        srgSectionsUnlocked = false;
+
+        try {
+            localStorage.setItem(REPORT_SETTINGS_STORAGE_KEY, JSON.stringify(reportSettings));
+        } catch (error) { /* storage unavailable */ }
+
+        return true;
+
+    } catch (error) {
+
+        console.error("Section password reset error:", error);
+        return false;
+
+    }
+
+}
+
 async function updatePassword() {
 
     const newPasswordElement =
@@ -2380,6 +2774,7 @@ async function updatePassword() {
     try {
 
         const {
+            data,
             error
         } =
             await supabaseClient.auth
@@ -2407,8 +2802,13 @@ async function updatePassword() {
         }
 
 
+        const sectionLockCleared = await srgClearSectionPasswordAfterReset(data && data.user);
+
         alert(
-            "✅ Password changed successfully."
+            "✅ Password changed successfully." +
+            (sectionLockCleared
+                ? "\n\n🔓 The section password was also cleared. Sign in, then tap 🔒 on School Information to set a new one."
+                : "")
         );
 
 
@@ -2648,9 +3048,17 @@ function applySchoolProfile(row) {
         }
     );
 
+    /* The server copy decides: a password removed or reset elsewhere must
+       not survive in this browser's cached settings. */
+    if (!row.report_settings || !row.report_settings.sectionPassword) {
+        delete reportSettings.sectionPassword;
+    }
+
 }
 
 function resetSchoolProfileState() {
+
+    srgLockAllSections();
 
     studentPhotoMap = {};
 
