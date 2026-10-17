@@ -72,7 +72,9 @@
                 <div class="adm-toolbar">
                     <input class="adm-input" id="searchBox" type="search" placeholder="Search name, reference, parent or phone">
                     <button type="button" class="adm-btn-ghost" id="reloadList">Refresh</button>
+                    <button type="button" id="downloadAdmitted">Download admitted students</button>
                 </div>
+                <div id="downloadSaveLink"></div>
 
                 <div id="appList"></div>
                 <p class="adm-msg" id="listMsg"></p>
@@ -107,6 +109,13 @@
                     <div class="adm-field">
                         <label for="sResume">Resumption date</label>
                         <input id="sResume" type="date">
+                    </div>
+                    <div class="adm-field adm-full">
+                        <label for="sNextAdm">Next admission number (where numbering starts or continues from)</label>
+                        <input id="sNextAdm" type="number" min="1" step="1" inputmode="numeric">
+                        <p class="adm-note" id="nextAdmPreview"></p>
+                        <div><button type="button" id="saveNextAdm">Set admission number</button></div>
+                        <p class="adm-msg" id="nextAdmMsg"></p>
                     </div>
                     <div class="adm-full">
                         <button type="button" id="saveSettings">Save details</button>

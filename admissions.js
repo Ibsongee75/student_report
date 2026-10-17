@@ -175,7 +175,63 @@
             $("sAddress").value = settings.address || "";
             $("sSession").value = settings.current_session || "";
             $("sResume").value = settings.resumption_date || "";
+            $("sNextAdm").value = (Number(settings.adm_counter) || 0) + 1;
+            updateNextAdmPreview();
         }
+
+    }
+
+    /* ---------- admission number: where numbering starts ---------- */
+
+    function admNumberText(n) {
+        return "ADM/" + new Date().getFullYear() + "/" + String(n).padStart(4, "0");
+    }
+
+    function updateNextAdmPreview() {
+
+        const n = parseInt($("sNextAdm").value, 10);
+
+        $("nextAdmPreview").textContent = n >= 1
+            ? "The next student you admit will get: " + admNumberText(n) + ", then each one after it goes up by 1."
+            : "";
+
+    }
+
+    async function saveNextAdm() {
+
+        const msg = $("nextAdmMsg");
+        const n = parseInt($("sNextAdm").value, 10);
+
+        if (!(n >= 1)) {
+            admSetMsg(msg, "Enter a whole number of 1 or more.", true);
+            return;
+        }
+
+        admSetMsg(msg, "Saving\u2026", false);
+
+        const { error } = await admDb.rpc("set_admission_start", { p_website: ADM_SITE, p_next: n });
+
+        if (error) {
+
+            console.error("set_admission_start:", error);
+
+            const missing = error.code === "PGRST202" || error.code === "42883" ||
+                /could not find the function/i.test(String(error.message || ""));
+
+            admSetMsg(
+                msg,
+                missing
+                    ? "Run admission_start.sql in Supabase first (SQL Editor), then try again."
+                    : admErrorText(error, "Could not save."),
+                true
+            );
+            return;
+
+        }
+
+        settings = settings || {};
+        settings.adm_counter = n - 1;
+        admSetMsg(msg, "Saved. The next admitted student gets " + admNumberText(n) + ".", false);
 
     }
 
@@ -554,6 +610,185 @@
 
     }
 
+    /* ---------- download the list of admitted students ---------- */
+
+    let xlsxPromise = null;
+
+    /* Loads the Excel library in the background so the download starts the moment the button is tapped. */
+    function loadXlsx() {
+
+        if (window.XLSX) return Promise.resolve(true);
+
+        if (!xlsxPromise) {
+
+            const sources = [
+                "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js",
+                "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"
+            ];
+
+            xlsxPromise = (async function () {
+
+                for (let i = 0; i < sources.length; i++) {
+
+                    await new Promise(function (resolve) {
+                        const script = document.createElement("script");
+                        script.src = sources[i];
+                        script.onload = function () { resolve(); };
+                        script.onerror = function () { resolve(); };
+                        document.head.appendChild(script);
+                    });
+
+                    if (window.XLSX) return true;
+
+                }
+
+                return false;
+
+            })().then(function (ok) {
+                if (!ok) xlsxPromise = null;
+                return ok;
+            });
+
+        }
+
+        return xlsxPromise;
+
+    }
+
+    function safeName(text) {
+        return String(text || "").replace(/[^a-z0-9]+/gi, "_").replace(/^_+|_+$/g, "");
+    }
+
+    function csvCell(value) {
+        const text = String(value === null || value === undefined ? "" : value);
+        return /[",\n\r]/.test(text) ? "\"" + text.replace(/"/g, "\"\"") + "\"" : text;
+    }
+
+    function saveFile(blob, fileName) {
+
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+
+        link.href = url;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+
+        /* A real tap on a link always works, even if the browser blocks the automatic download. */
+        $("downloadSaveLink").innerHTML =
+            "<p class=\"adm-note\">If the file did not download, <a href=\"" + url + "\" download=\"" +
+            admEsc(fileName) + "\"><strong>tap here to save " + admEsc(fileName) + "</strong></a>.</p>";
+
+        setTimeout(function () { URL.revokeObjectURL(url); }, 300000);
+
+    }
+
+    async function downloadAdmitted() {
+
+        const msg = $("listMsg");
+        const button = $("downloadAdmitted");
+
+        button.disabled = true;
+
+        try {
+
+            await loadApplications();   /* make sure the list is up to date */
+
+            const admitted = apps.filter(function (app) { return app.status === "admitted"; });
+
+            if (!admitted.length) {
+                admSetMsg(msg, "No students have been admitted yet, so there is nothing to download.", true);
+                return;
+            }
+
+            admitted.sort(function (a, b) {
+                return String(a.admission_no || "").localeCompare(String(b.admission_no || ""), undefined, { numeric: true });
+            });
+
+            const header = [
+                "S/N", "Admission No", "Student Name", "Class Admitted", "Session", "Gender", "Date of Birth",
+                "Parent / Guardian", "Parent Phone", "Parent Email", "Address", "Previous School",
+                "Reference No", "Date Applied", "Date Admitted", "Note"
+            ];
+
+            const rows = admitted.map(function (app, index) {
+                return [
+                    index + 1,
+                    app.admission_no || "",
+                    app.full_name || "",
+                    app.class_admitted || app.class_applied || "",
+                    app.session || "",
+                    app.gender || "",
+                    admFmtDate(app.date_of_birth),
+                    app.parent_name || "",
+                    app.parent_phone || "",
+                    app.parent_email || "",
+                    app.address || "",
+                    app.previous_school || "",
+                    app.ref_no || "",
+                    admFmtDate(app.created_at),
+                    admFmtDate(app.approved_at),
+                    app.remarks || ""
+                ];
+            });
+
+            const base = (safeName(settings && settings.school_name) || "School") + "_Admitted_Students";
+            const haveExcel = await loadXlsx();
+
+            if (haveExcel) {
+
+                const sheet = XLSX.utils.aoa_to_sheet([header].concat(rows));
+
+                /* Admission numbers and phone numbers stay text, so leading zeros are kept. */
+                for (let r = 2; r <= rows.length + 1; r++) {
+                    ["B" + r, "I" + r].forEach(function (ref) {
+                        if (sheet[ref]) { sheet[ref].t = "s"; sheet[ref].z = "@"; sheet[ref].v = String(sheet[ref].v); }
+                    });
+                }
+
+                sheet["!cols"] = [
+                    { wch: 5 }, { wch: 16 }, { wch: 30 }, { wch: 14 }, { wch: 11 }, { wch: 9 }, { wch: 16 },
+                    { wch: 26 }, { wch: 15 }, { wch: 26 }, { wch: 34 }, { wch: 26 }, { wch: 16 }, { wch: 16 },
+                    { wch: 16 }, { wch: 24 }
+                ];
+
+                const workbook = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(workbook, sheet, "Admitted Students");
+
+                const bytes = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
+
+                saveFile(
+                    new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }),
+                    base + ".xlsx"
+                );
+
+            } else {
+
+                /* The Excel library could not load (no internet to the CDN): save a CSV instead. */
+                const csv = "\uFEFF" + [header].concat(rows).map(function (row) {
+                    return row.map(csvCell).join(",");
+                }).join("\r\n");
+
+                saveFile(new Blob([csv], { type: "text/csv;charset=utf-8" }), base + ".csv");
+
+            }
+
+            admSetMsg(msg, "\u2705 " + admitted.length + " admitted student(s) downloaded.", false);
+
+        } catch (error) {
+
+            console.error("download admitted:", error);
+            admSetMsg(msg, "Could not create the file: " + ((error && error.message) || error), true);
+
+        } finally {
+
+            button.disabled = false;
+
+        }
+
+    }
+
     /* ---------- link sharing ---------- */
 
     async function copyLink() {
@@ -593,7 +828,10 @@
     $("copyLink").addEventListener("click", copyLink);
     $("shareLink").addEventListener("click", shareLink);
     $("saveSettings").addEventListener("click", saveSettings);
+    $("saveNextAdm").addEventListener("click", saveNextAdm);
+    $("sNextAdm").addEventListener("input", updateNextAdmPreview);
     $("reloadList").addEventListener("click", loadApplications);
+    $("downloadAdmitted").addEventListener("click", downloadAdmitted);
     $("searchBox").addEventListener("input", renderApplications);
     $("appList").addEventListener("click", onListClick);
     $("staffList").addEventListener("change", onStaffChange);
@@ -629,6 +867,7 @@
         openSchool($("schoolPick").value);
     });
 
+    loadXlsx();
     start();
 
 })();
