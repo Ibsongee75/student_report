@@ -76,7 +76,7 @@
         };
 
         if (!payload.full_name || !payload.date_of_birth || !payload.class_applied ||
-            !payload.parent_name || !payload.parent_phone) {
+            !payload.parent_name || !payload.parent_phone || !payload.address) {
             admSetMsg(msg, "Please fill in every field marked *.", true);
             return;
         }
