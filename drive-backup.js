@@ -22,7 +22,7 @@
 (function () {
     "use strict";
 
-    const GOOGLE_CLIENT_ID = "https://524818245848-j0p4gvd5f2glm4psqq8rgcn3ds7hce3c.apps.googleusercontent.com";
+    const GOOGLE_CLIENT_ID = "524818245848-j0p4gvd5f2glm4psqq8rgcn3ds7hce3c.apps.googleusercontent.com";
 
     const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
     const DRIVE_FOLDER_NAME = "Schools manager Backups";
