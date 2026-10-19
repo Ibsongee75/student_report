@@ -374,7 +374,7 @@
         style.id = "drive-backup-styles";
         style.textContent =
             "#driveBackupButton{position:fixed!important;right:10px!important;left:auto!important;bottom:14px;width:auto!important;min-width:0!important;max-width:none!important;display:inline-block!important;margin:0!important;z-index:9998;padding:6px 10px;border:0;border-radius:20px;" +
-            "background:#1a73e8;color:#fff;font:600 14px system-ui,sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.3);cursor:pointer}" +
+            "background:#1a73e8;color:#fff;font:600 12px system-ui,sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.3);cursor:pointer}" +
             "#driveBackupOverlay{position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;padding:12px}" +
             "#driveBackupBox{background:#fff;color:#222;width:100%;max-width:480px;max-height:90vh;overflow:auto;border-radius:12px;padding:16px;font:14px system-ui,sans-serif}" +
             "#driveBackupBox h3{margin:0 0 4px;font-size:18px}#driveBackupBox .db-sub{color:#555;margin:0 0 12px}" +
@@ -384,6 +384,7 @@
             "#driveBackupBox label.db-row{display:flex;gap:8px;align-items:center;padding:8px;border:1px solid #ddd;border-radius:8px;margin-bottom:6px}" +
             "#driveBackupBox label.db-row.off{opacity:.5}#driveBackupBox .db-meta{color:#666;font-size:12px}" +
             "#driveBackupBox .db-go{width:100%;padding:12px;border:0;border-radius:8px;background:#1a73e8;color:#fff;font-weight:700;margin-top:8px;cursor:pointer}" +
+            "#driveBackupBox .db-go.db-alt{background:#fff;color:#1a73e8;border:1px solid #1a73e8}#driveBackupBox .db-go.db-alt:disabled{background:#fff;color:#9ab;border-color:#9ab}" +
             "#driveBackupBox .db-go:disabled{background:#9ab}#driveBackupBox .db-close{width:100%;padding:10px;border:0;background:none;color:#555;cursor:pointer;margin-top:4px}" +
             "#driveBackupBox .db-status{margin-top:10px;padding:8px;border-radius:8px;background:#f1f3f4;white-space:pre-wrap}" +
             "#driveBackupBox .db-status.err{background:#fde8e8;color:#a00}#driveBackupBox .db-status.ok{background:#e6f4ea;color:#0a5}";
@@ -557,8 +558,133 @@
                 return '<label class="db-row"><input type="checkbox" class="db-r" value="' + esc(s) + '" checked>' +
                     '<div><strong>' + esc(s) + '</strong><div class="db-meta">' + n + ' records</div></div></label>';
             }).join("") +
+            '<button class="db-go db-alt" id="dbExcelGo">View as Excel (readable copy)</button>' +
             '<button class="db-go" id="dbRestoreGo">Restore selected sessions</button>';
+        modal.querySelector("#dbExcelGo").onclick = downloadReadableCopy;
         modal.querySelector("#dbRestoreGo").onclick = runRestore;
+    }
+
+    /* ---- Readable Excel copy of a backup (viewing only) ---- */
+    function loadXlsxLibrary() {
+        if (typeof XLSX !== "undefined") return Promise.resolve();
+        return new Promise(function (resolve, reject) {
+            const s = document.createElement("script");
+            s.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+            s.onload = resolve;
+            s.onerror = function () { reject(new Error("Could not load the Excel library. Check your internet connection.")); };
+            document.head.appendChild(s);
+        });
+    }
+
+    function buildReadableWorkbook(data, sessions) {
+        const keep = new Set(sessions);
+        const rows = function (t) {
+            return ((data.tables && data.tables[t]) || []).filter(function (r) { return keep.has(r.session); });
+        };
+        const text = function (a, b) {
+            return String(a || "").localeCompare(String(b || ""), undefined, { numeric: true, sensitivity: "base" });
+        };
+        const termRank = function (t) {
+            const i = ["First Term", "Second Term", "Third Term"].indexOf(t);
+            return i === -1 ? 9 : i;
+        };
+        const num = function (v) { return v === null || v === undefined || v === "" ? "" : Number(v); };
+
+        const students = rows("class_students").sort(function (a, b) {
+            return text(a.session, b.session) || text(a.class_name, b.class_name) ||
+                ((a.sort_order || 0) - (b.sort_order || 0)) || text(a.student_name, b.student_name);
+        });
+        const scores = rows("subject_scores").sort(function (a, b) {
+            return text(a.session, b.session) || text(a.class_name, b.class_name) ||
+                (termRank(a.term) - termRank(b.term)) || text(a.subject, b.subject) || text(a.student_name, b.student_name);
+        });
+        const attendance = rows("class_attendance").sort(function (a, b) {
+            return text(a.session, b.session) || text(a.class_name, b.class_name) ||
+                (termRank(a.term) - termRank(b.term)) || text(a.student_name, b.student_name);
+        });
+
+        /* Summary: one line per session + class */
+        const groups = {};
+        const group = function (r) {
+            const key = r.session + "|" + r.class_name;
+            return groups[key] || (groups[key] = { session: r.session, className: r.class_name, students: 0, subjects: new Set(), terms: new Set() });
+        };
+        students.forEach(function (r) { group(r).students++; });
+        scores.forEach(function (r) { const g = group(r); if (r.subject) g.subjects.add(r.subject); if (r.term) g.terms.add(r.term); });
+        attendance.forEach(function (r) { group(r); });
+
+        const summary = [
+            ["Schools Manager backup - readable copy"],
+            ["This file is for viewing only. To restore data, use the backup in Google Drive."],
+            [],
+            ["Backup created", data.created_at ? new Date(data.created_at).toLocaleString() : ""],
+            ["Sessions", sessions.join(", ")],
+            [],
+            ["Session", "Class", "Students", "Subjects", "Terms with scores"]
+        ];
+        Object.keys(groups).sort().forEach(function (k) {
+            const g = groups[k];
+            summary.push([g.session, g.className, g.students, g.subjects.size,
+                Array.from(g.terms).sort(function (a, b) { return termRank(a) - termRank(b); }).join(", ")]);
+        });
+
+        const classLists = [["Session", "Class", "Admission No", "Student Name", "Gender", "House"]].concat(
+            students.map(function (r) { return [r.session, r.class_name, r.admission_no || "", r.student_name || "", r.gender || "", r.house || ""]; }));
+
+        const scoreSheet = [["Session", "Term", "Class", "Subject", "Admission No", "Student Name", "1st CA", "2nd CA", "Exams", "Total"]].concat(
+            scores.map(function (r) {
+                const parts = [num(r.first_ca), num(r.second_ca), num(r.exams)].filter(function (v) { return v !== ""; });
+                const total = parts.length ? parts.reduce(function (a, b) { return a + b; }, 0) : "";
+                return [r.session, r.term || "", r.class_name, r.subject || "", r.admission_no || "", r.student_name || "",
+                    num(r.first_ca), num(r.second_ca), num(r.exams), total];
+            }));
+
+        const attendanceSheet = [["Session", "Term", "Class", "Admission No", "Student Name", "Days Present", "Days Opened"]].concat(
+            attendance.map(function (r) {
+                return [r.session, r.term || "", r.class_name, r.admission_no || "", r.student_name || "", num(r.days_present), num(r.days_opened)];
+            }));
+
+        const wb = XLSX.utils.book_new();
+        const add = function (name, aoa, widths) {
+            const ws = XLSX.utils.aoa_to_sheet(aoa);
+            ws["!cols"] = widths.map(function (w) { return { wch: w }; });
+            XLSX.utils.book_append_sheet(wb, ws, name);
+        };
+        add("Summary", summary, [16, 22, 12, 12, 34]);
+        add("Class Lists", classLists, [12, 20, 16, 32, 10, 14]);
+        add("Scores", scoreSheet, [12, 12, 20, 22, 16, 32, 8, 8, 8, 8]);
+        add("Attendance", attendanceSheet, [12, 12, 20, 16, 32, 14, 12]);
+        return wb;
+    }
+
+    async function downloadReadableCopy() {
+        if (busy || !loadedBackup) return;
+        const picked = Array.from(modal.querySelectorAll(".db-r:checked")).map(function (c) { return c.value; }).filter(isCompletedSession);
+        if (!picked.length) { setStatus("Select at least one session.", "err"); return; }
+
+        busy = true;
+        const btn = modal.querySelector("#dbExcelGo");
+        btn.disabled = true;
+        try {
+            setStatus("Preparing Excel file…");
+            await loadXlsxLibrary();
+            const wb = buildReadableWorkbook(loadedBackup.data, picked);
+            const bytes = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+            const blob = new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+            const name = "Backup_" + picked.map(function (s) { return s.replace("/", "-"); }).join("_") + ".xlsx";
+            const link = document.createElement("a");
+            link.href = URL.createObjectURL(blob);
+            link.download = name;
+            document.body.appendChild(link);
+            link.click();
+            setTimeout(function () { URL.revokeObjectURL(link.href); link.remove(); }, 2000);
+            setStatus("✔ Excel file downloaded\n" + name + "\nNothing was restored.", "ok");
+        } catch (e) {
+            setStatus("✖ " + (e && e.message ? e.message : "Could not create the Excel file."), "err");
+        } finally {
+            busy = false;
+            if (btn) btn.disabled = false;
+        }
     }
 
     async function runRestore() {
