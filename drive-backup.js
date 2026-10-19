@@ -373,7 +373,7 @@
         const style = document.createElement("style");
         style.id = "drive-backup-styles";
         style.textContent =
-            "#driveBackupButton{position:fixed;left:14px;bottom:14px;z-index:9998;padding:10px 14px;border:0;border-radius:24px;" +
+            "#driveBackupButton{position:fixed!important;right:10px!important;left:auto!important;bottom:14px;width:auto!important;min-width:0!important;max-width:none!important;display:inline-block!important;margin:0!important;z-index:9998;padding:6px 10px;border:0;border-radius:20px;" +
             "background:#1a73e8;color:#fff;font:600 14px system-ui,sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.3);cursor:pointer}" +
             "#driveBackupOverlay{position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;padding:12px}" +
             "#driveBackupBox{background:#fff;color:#222;width:100%;max-width:480px;max-height:90vh;overflow:auto;border-radius:12px;padding:16px;font:14px system-ui,sans-serif}" +
