@@ -12083,9 +12083,13 @@ async function downloadExcelTemplate() {
                 f: `IF($B${row}="","",SUM(${overallTotalFormula}))`
             };
 
+            /* Divide by the number of subjects this student has a score in.
+               A subject's Total cell is blank when its 1st CA, 2nd CA and
+               Exams are all blank (not offered), so COUNT() skips it. */
             scoresSheet[averageLetter + row] = {
+
                 t: "n",
-                f: `IF($B${row}="","",IFERROR(${overallTotalLetter}${row}/SUM(${schoolSubjects.map(function(subject) { const sheetName = actualSubjectSheetNames[subject]; const safeSheetName = sheetName.replace(/'/g, "''"); return "COUNTIF('" + safeSheetName + "'!$F:$F,TRIM($A" + row + ")&\"|\"&TRIM(CLEAN(SUBSTITUTE($B" + row + ",CHAR(160),\" \"))))"; }).join(",")}),0))`
+                f: `IF($B${row}="","",IFERROR(${overallTotalLetter}${row}/COUNT(${overallTotalFormula}),0))`
             };
 
             scoresSheet[positionLetter + row] = {
