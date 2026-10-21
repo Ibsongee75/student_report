@@ -7,7 +7,7 @@
    - Backs up whole completed sessions (all terms inside them).
      You choose sessions, never terms. The current session and
      future sessions can't be selected.
-   - Data saved: class lists, subject scores, attendance, the
+   - Data saved: class lists, subject scores, attendance, school fee records, the
      class names, and passport photos of the students involved.
    - Backups are JSON files in a Google Drive folder called
      "Schools Manager Backups", created by this app.
@@ -35,8 +35,17 @@
     const TABLES = {
         class_students: { owner: "owner_user_id", conflict: "owner_user_id,website_id,class_name,session,match_key" },
         subject_scores: { owner: "user_id", conflict: "user_id,website_id,class_name,session,term,subject,match_key" },
-        class_attendance: { owner: "owner_user_id", conflict: "owner_user_id,website_id,class_name,session,term,match_key" }
+        class_attendance: { owner: "owner_user_id", conflict: "owner_user_id,website_id,class_name,session,term,match_key" },
+        /* school fee records (optional: skipped if the fees tables are not set up) */
+        fee_items: { owner: "owner_user_id", conflict: "owner_user_id,website_id,class_name,session,term,item_name", optional: true },
+        fee_students: { owner: "owner_user_id", conflict: "owner_user_id,website_id,class_name,session,match_key", optional: true },
+        fee_payments: { owner: "owner_user_id", conflict: "owner_user_id,website_id,receipt_no", optional: true }
     };
+
+    function isMissingTable(error) {
+        const text = String((error && (error.code + " " + error.message)) || "");
+        return /42P01|PGRST205|does not exist|schema cache|Could not find the table/i.test(text);
+    }
 
     let accessToken = "";
     let tokenExpiry = 0;
@@ -57,6 +66,23 @@
 
     function isOwner() { return typeof staffContext === "undefined" || !staffContext; }
     function inAndroidApp() { return typeof IS_ANDROID_APP !== "undefined" && IS_ANDROID_APP; }
+
+    /* ---- Inside the Android app: Google sign-in is blocked there, so the backup
+       is saved as a file and handed to Android's share list (Drive, Files,
+       WhatsApp...). Needs the @capacitor/filesystem and @capacitor/share plugins. ---- */
+    function capPlugins() { return (window.Capacitor && window.Capacitor.Plugins) || {}; }
+    function inApp() {
+        return inAndroidApp() || !!(window.Capacitor && typeof window.Capacitor.isNativePlatform === "function" && window.Capacitor.isNativePlatform());
+    }
+    function appFilesReady() { const p = capPlugins(); return !!(p.Filesystem && p.Share); }
+    async function shareFileInApp(name, data, isBase64) {
+        const P = capPlugins();
+        const opts = { path: name, data: data, directory: "CACHE" };
+        if (!isBase64) opts.encoding = "utf8";
+        await P.Filesystem.writeFile(opts);
+        const f = await P.Filesystem.getUri({ path: name, directory: "CACHE" });
+        await P.Share.share({ title: name, url: f.uri, dialogTitle: "Save or send this file" });
+    }
 
     function currentStartYear() {
         const now = new Date();
@@ -213,7 +239,10 @@
                 .in("session", sessions)
                 .order("session", { ascending: true })
                 .range(from, from + PAGE - 1);
-            if (error) throw new Error("Could not read " + table + ": " + error.message);
+            if (error) {
+                if (TABLES[table] && TABLES[table].optional && isMissingTable(error)) return [];
+                throw new Error("Could not read " + table + ": " + error.message);
+            }
             (data || []).forEach(function (r) { rows.push(r); });
             if (!data || data.length < PAGE) break;
         }
@@ -320,13 +349,18 @@
         }
 
         /* 2. the session records, class list first */
-        for (const table of ["class_students", "subject_scores", "class_attendance"]) {
+        for (const table of ["class_students", "subject_scores", "class_attendance", "fee_items", "fee_students", "fee_payments"]) {
             const rows = prepareRows(table, (data.tables && data.tables[table]) || [], allowed);
             let done = 0;
             for (const part of chunks(rows, CHUNK)) {
                 onProgress("Restoring " + table.replace("_", " ") + " (" + done + "/" + rows.length + ")…");
                 const { error } = await supabaseClient.from(table).upsert(part, { onConflict: TABLES[table].conflict });
-                if (error) throw new Error("Restore stopped at " + table + ": " + error.message);
+                if (error) {
+                    if (TABLES[table].optional && isMissingTable(error)) {
+                        throw new Error("This backup includes school fee records, but the fees tables are not set up. Run fees.sql in Supabase, then restore again.");
+                    }
+                    throw new Error("Restore stopped at " + table + ": " + error.message);
+                }
                 done += part.length;
             }
             summary.rows += rows.length;
@@ -404,19 +438,20 @@
     function open() {
         if (!isOwner()) { alert("Only the school owner can back up or restore data."); return; }
         if (typeof currentUserId === "undefined" || !currentUserId) { alert("Please sign in first."); return; }
-        if (inAndroidApp()) {
-            alert("Google sign-in is blocked inside the Android app. Please use the website to back up or restore.");
+        if (inApp() && !appFilesReady()) {
+            alert("Backup inside the app needs the latest app update (file save and share). Please install the newest version of the app, or use the website.");
             return;
         }
-        if (GOOGLE_CLIENT_ID.indexOf("PASTE_") === 0) { alert("Google Drive backup is not set up yet (missing Google Client ID)."); return; }
+        if (!inApp() && GOOGLE_CLIENT_ID.indexOf("PASTE_") === 0) { alert("Google Drive backup is not set up yet (missing Google Client ID)."); return; }
 
         injectStyles();
         close();
         modal = document.createElement("div");
         modal.id = "driveBackupOverlay";
         modal.innerHTML =
-            '<div id="driveBackupBox"><h3>☁ Google Drive Backup</h3>' +
-            '<p class="db-sub">Completed sessions only. Each session includes all its terms.</p>' +
+            '<div id="driveBackupBox"><h3>' + (inApp() ? "💾 Backup file" : "☁ Google Drive Backup") + '</h3>' +
+            '<p class="db-sub">Completed sessions only. Each session includes all its terms.' +
+            (inApp() ? " The backup is saved as a file. Choose Google Drive (or Files) in the list that opens, to keep it safe." : "") + '</p>' +
             '<div class="db-tabs"><button class="db-tab on" data-tab="backup">Backup</button>' +
             '<button class="db-tab" data-tab="restore">Restore</button></div>' +
             '<div id="dbBody"></div><div class="db-status" style="display:none"></div>' +
@@ -433,7 +468,7 @@
                 b.dataset.tab === "backup" ? showBackupTab() : showRestoreTab();
             };
         });
-        loadGoogleScript().catch(function (e) { setStatus(e.message, "err"); }); /* preload so the popup isn't blocked */
+        if (!inApp()) loadGoogleScript().catch(function (e) { setStatus(e.message, "err"); }); /* preload so the popup isn't blocked */
         showBackupTab();
     }
 
@@ -445,19 +480,24 @@
         if (!sessions.length) { body.innerHTML = '<p>No completed session yet. The current session can be backed up once it ends.</p>'; return; }
 
         const info = await Promise.all(sessions.map(async function (s) {
-            const counts = await Promise.all(Object.keys(TABLES).map(function (t) { return countRows(t, TABLES[t].owner, s); }));
-            return { session: s, students: counts[0], scores: counts[1], attendance: counts[2] };
+            const names = Object.keys(TABLES);
+            const counts = await Promise.all(names.map(function (t) { return countRows(t, TABLES[t].owner, s); }));
+            const by = {};
+            names.forEach(function (t, i) { by[t] = counts[i]; });
+            return { session: s, students: by.class_students, scores: by.subject_scores, attendance: by.class_attendance,
+                feeItems: by.fee_items, feePayments: by.fee_payments, feeStudents: by.fee_students };
         }));
         if (!modal) return;
 
-        const withData = info.filter(function (i) { return i.students + i.scores + i.attendance > 0; });
+        const withData = info.filter(function (i) { return i.students + i.scores + i.attendance + i.feeItems + i.feePayments + i.feeStudents > 0; });
         if (!withData.length) { body.innerHTML = '<p>No saved records were found in completed sessions.</p>'; return; }
 
         body.innerHTML = withData.map(function (i) {
             return '<label class="db-row"><input type="checkbox" class="db-s" value="' + esc(i.session) + '" checked>' +
                 '<div><strong>' + esc(i.session) + '</strong><div class="db-meta">' + i.students + ' students · ' +
-                i.scores + ' score rows · ' + i.attendance + ' attendance rows</div></div></label>';
-        }).join("") + '<button class="db-go" id="dbBackupGo">Back up to Google Drive</button>';
+                i.scores + ' score rows · ' + i.attendance + ' attendance rows' +
+                (i.feeItems + i.feePayments > 0 ? ' · ' + i.feePayments + ' fee payments' : '') + '</div></div></label>';
+        }).join("") + '<button class="db-go" id="dbBackupGo">' + (inApp() ? "Create backup file" : "Back up to Google Drive") + '</button>';
 
         modal.querySelector("#dbBackupGo").onclick = runBackup;
     }
@@ -471,17 +511,25 @@
         const btn = modal.querySelector("#dbBackupGo");
         btn.disabled = true;
         try {
-            setStatus("Signing in to Google…");
-            await getAccessToken();                       /* first await: still inside the click */
+            if (!inApp()) {
+                setStatus("Signing in to Google…");
+                await getAccessToken();                   /* first await: still inside the click */
+            }
             const data = await buildBackup(picked, setStatus);
             const students = (data.tables.class_students || []).length;
             const total = Object.keys(data.tables).reduce(function (n, t) { return n + data.tables[t].length; }, 0);
             if (!total) throw new Error("Nothing to back up for the chosen sessions.");
 
-            setStatus("Uploading to Google Drive…");
-            const folderId = await findOrCreateFolder(true);
             const stamp = new Date().toISOString().replace(/[:T]/g, "-").slice(0, 16);
             const name = "backup_" + WEBSITE_ID + "_" + picked.map(function (s) { return s.replace("/", "-"); }).join("_") + "_" + stamp + ".json";
+            if (inApp()) {
+                setStatus("Saving the backup file…");
+                await shareFileInApp(name, JSON.stringify(data), false);
+                setStatus("✔ Backup file created\n" + name + "\n" + total + " records, " + data.student_photos.length + " photos.\nIn the list that opened, choose Google Drive (or Files) to keep it safe.", "ok");
+                return;
+            }
+            setStatus("Uploading to Google Drive…");
+            const folderId = await findOrCreateFolder(true);
             await uploadBackupFile(folderId, name, JSON.stringify(data), picked, { students: students });
             setStatus("✔ Backup saved to Google Drive\n" + name + "\n" + total + " records, " + data.student_photos.length + " photos.", "ok");
         } catch (e) {
@@ -495,6 +543,29 @@
     /* ---- Restore tab ---- */
     async function showRestoreTab() {
         const body = modal.querySelector("#dbBody");
+        if (inApp()) {
+            body.innerHTML = '<p class="db-meta">Choose the backup file (.json) you saved earlier, for example from Google Drive or your Downloads.</p>' +
+                '<label class="db-go" style="display:block;text-align:center;cursor:pointer">Choose backup file' +
+                '<input type="file" id="dbPickFile" style="display:none"></label>';
+            modal.querySelector("#dbPickFile").onchange = async function (ev) {
+                const f = ev.target.files && ev.target.files[0];
+                if (!f || busy) return;
+                busy = true;
+                try {
+                    setStatus("Reading the backup file…");
+                    const data = JSON.parse(await f.text());
+                    if (!data || data.app !== BACKUP_APP_TAG || !data.tables) throw new Error("This is not a valid backup file.");
+                    const sessions = (data.sessions || []).filter(isCompletedSession);
+                    if (!sessions.length) throw new Error("This backup has no completed sessions to restore.");
+                    loadedBackup = { file: { name: f.name }, data: data, sessions: sessions };
+                    setStatus("");
+                    renderRestoreChoice();
+                } catch (e) {
+                    setStatus("✖ " + (e instanceof SyntaxError ? "This is not a valid backup file." : (e && e.message ? e.message : "Could not open the backup.")), "err");
+                } finally { busy = false; }
+            };
+            return;
+        }
         body.innerHTML = '<button class="db-go" id="dbListGo">Sign in to Google and list my backups</button>';
         modal.querySelector("#dbListGo").onclick = async function () {
             if (busy) return;
@@ -644,6 +715,22 @@
                 return [r.session, r.term || "", r.class_name, r.admission_no || "", r.student_name || "", num(r.days_present), num(r.days_opened)];
             }));
 
+        const feeItems = rows("fee_items").sort(function (a, b) {
+            return text(a.session, b.session) || text(a.class_name, b.class_name) ||
+                (termRank(a.term) - termRank(b.term)) || text(a.item_name, b.item_name);
+        });
+        const feePayments = rows("fee_payments").sort(function (a, b) {
+            return text(a.session, b.session) || (termRank(a.term) - termRank(b.term)) ||
+                text(a.class_name, b.class_name) || text(a.student_name, b.student_name) || text(a.paid_on, b.paid_on);
+        });
+        const feeItemSheet = [["Session", "Class", "Term", "Fee", "Amount"]].concat(
+            feeItems.map(function (r) { return [r.session, r.class_name, r.term || "", r.item_name || "", num(r.amount)]; }));
+        const feePaymentSheet = [["Session", "Term", "Class", "Admission No", "Student Name", "Receipt No", "Date", "Amount", "Method", "Reference", "Status"]].concat(
+            feePayments.map(function (r) {
+                return [r.session, r.term || "", r.class_name, r.admission_no || "", r.student_name || "", r.receipt_no || "", r.paid_on || "",
+                    num(r.amount), r.method || "", r.reference || "", r.voided ? "Cancelled: " + (r.void_reason || "") : "Valid"];
+            }));
+
         const wb = XLSX.utils.book_new();
         const add = function (name, aoa, widths) {
             const ws = XLSX.utils.aoa_to_sheet(aoa);
@@ -654,6 +741,8 @@
         add("Class Lists", classLists, [12, 20, 16, 32, 10, 14]);
         add("Scores", scoreSheet, [12, 12, 20, 22, 16, 32, 8, 8, 8, 8]);
         add("Attendance", attendanceSheet, [12, 12, 20, 16, 32, 14, 12]);
+        if (feeItems.length) add("Fee Items", feeItemSheet, [12, 20, 14, 26, 14]);
+        if (feePayments.length) add("Fee Payments", feePaymentSheet, [12, 12, 20, 16, 32, 16, 12, 14, 14, 20, 28]);
         return wb;
     }
 
@@ -669,6 +758,12 @@
             setStatus("Preparing Excel file…");
             await loadXlsxLibrary();
             const wb = buildReadableWorkbook(loadedBackup.data, picked);
+            if (inApp()) {
+                const appName = "Backup_" + picked.map(function (s) { return s.replace("/", "-"); }).join("_") + ".xlsx";
+                await shareFileInApp(appName, XLSX.write(wb, { bookType: "xlsx", type: "base64" }), true);
+                setStatus("✔ Excel file ready\n" + appName + "\nNothing was restored.", "ok");
+                return;
+            }
             const bytes = XLSX.write(wb, { bookType: "xlsx", type: "array" });
             const blob = new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
             const name = "Backup_" + picked.map(function (s) { return s.replace("/", "-"); }).join("_") + ".xlsx";
