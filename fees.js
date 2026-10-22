@@ -787,16 +787,38 @@
 
     /* Prints in its own window, so nothing else on the page (such as
        generated reports) can end up in the print preview. */
+    /* Finds the app's PrintPlugin whichever way Capacitor exposes it */
+    function getPrintPlugin() {
+        const c = window.Capacitor;
+        if (!c) return null;
+        if (c.Plugins && c.Plugins.PrintPlugin) return c.Plugins.PrintPlugin;
+        try {
+            if (typeof c.registerPlugin === "function") return c.registerPlugin("PrintPlugin");
+        } catch (e) { /* not available */ }
+        return null;
+    }
+
     function printReceipt(markup) {
         const html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Receipt</title>' +
             '<style>@page{margin:12mm}body{margin:16px;font:14px system-ui,Arial,sans-serif;color:#000;background:#fff}' + RECEIPT_CSS + "</style></head>" +
             '<body><div id="feesReceiptBox">' + markup + "</div></body></html>";
 
-        /* Inside the Android app: use the app's own print plugin (ReceiptPrint) */
-        const cap = window.Capacitor;
-        if (cap && cap.Plugins && cap.Plugins.ReceiptPrint) {
-            cap.Plugins.ReceiptPrint.print({ html: html, title: "Receipt" })
-                .catch(function () { alert("Could not open the printer. Please try again."); });
+        /* Inside the Android app: use the app's own print plugin (PrintPlugin.printHtml) */
+        const pp = getPrintPlugin();
+        if (pp) {
+            Promise.resolve()
+                .then(function () { return pp.printHtml({ html: html, name: "Receipt" }); })
+                .catch(function (e) {
+                    alert("Could not open the printer: " + ((e && (e.message || e.errorMessage)) || e) +
+                        "\n\nIf it says the method is not implemented, the app needs the latest update.");
+                });
+            return;
+        }
+        if (inNativeApp()) {
+            const c = window.Capacitor;
+            alert("The print plugin was not found in this app.\nPlugins found: " +
+                (c && c.Plugins ? Object.keys(c.Plugins).join(", ") : "none") +
+                "\n\nPlease send this message to the developer.");
             return;
         }
 
@@ -845,11 +867,6 @@
         document.body.appendChild(overlay);
         overlay.querySelector("#rClose").onclick = function () { overlay.remove(); };
         overlay.querySelector("#rPrint").onclick = function () {
-            const cap = window.Capacitor;
-            if (inNativeApp() && !(cap && cap.Plugins && cap.Plugins.ReceiptPrint)) {
-                alert("Printing receipts needs the latest app update. Please update the app, print from the website, or take a screenshot of the receipt.");
-                return;
-            }
             printReceipt(markup);
         };
     }
