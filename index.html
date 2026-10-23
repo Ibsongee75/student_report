@@ -930,6 +930,8 @@ body.srg-staff-mode:not(.srg-role-subject) #srg-step-1b {
                 <li class="srg-group-app"><a href="#reportSection">Step 3: Generate reports</a></li>
                 <li class="srg-group-app"><a href="#publishResultsSection">🌐 Publish results</a></li>
 
+                <li id="srgMenuApp" style="display:none"><a href="https://github.com/ibsongee75/school-administrator/releases/latest/download/school.administrator.apk" download class="srg-menu-public">📱 <span>Download Android app<small>Install School Administrator on your phone</small></span></a></li>
+
                 <li><a href="#contactSection">Contact &amp; Support</a></li>
                 <li class="srg-group-home"><a href="#authSection" class="srg-menu-cta">Get started</a></li>
 
@@ -2287,7 +2289,7 @@ body.srg-staff-mode:not(.srg-role-subject) #srg-step-1b {
     </p>
 
     <p>
-        <strong>WhatsApp🟢/Call☎️:</strong>
+        <strong>WhatsApp/Call:</strong>
         <a href="tel:07030477086">
             07030477086
         </a>
@@ -2336,11 +2338,12 @@ body.srg-staff-mode:not(.srg-role-subject) #srg-step-1b {
     <!-- =========================================
          YOUR JAVASCRIPT
     ========================================= -->
-       <script src="native-app.js?v=2"></script>
-    <script src="drive-backup.js?v=2"></script>
+
+  <script src="native-app.js?v=2"></script>
+  <script src="drive-backup.js?v=2"></script>
     <script src="script.js?v=36"></script>
   <script src="fees.js?v=3"></script>
-
+  
 
 
 <script>
@@ -2404,6 +2407,40 @@ body.srg-staff-mode:not(.srg-role-subject) #srg-step-1b {
     document.addEventListener("click", function (event) {
         if (!event.target.closest(".srg-topbar")) setOpen(false);
     });
+})();
+</script>
+
+<!-- =========================================
+     ANDROID APP DOWNLOAD (banner + menu item)
+     Shown only to Android visitors in a normal browser,
+     never inside the app itself.
+========================================= -->
+
+<div id="appBanner" style="display:none">
+  <span>📱 Get the School Administrator app</span>
+  <a href="https://github.com/ibsongee75/school-administrator/releases/latest/download/school.administrator.apk" download>Download</a>
+  <button id="appClose" type="button" aria-label="Close">✕</button>
+</div>
+
+<script>
+(function () {
+    var ua = navigator.userAgent;
+    var isAndroid = /Android/i.test(ua);
+    var inApp = /; wv\)/.test(ua);
+    if (!isAndroid || inApp) return;
+
+    var menuItem = document.getElementById("srgMenuApp");
+    if (menuItem) menuItem.style.display = "";
+
+    var banner = document.getElementById("appBanner");
+    var closeBtn = document.getElementById("appClose");
+    var dismissed = false;
+    try { dismissed = !!localStorage.getItem("appBannerClosed"); } catch (e) {}
+    if (banner && !dismissed) banner.style.display = "flex";
+    if (closeBtn) closeBtn.onclick = function () {
+        banner.style.display = "none";
+        try { localStorage.setItem("appBannerClosed", "1"); } catch (e) {}
+    };
 })();
 </script>
 
