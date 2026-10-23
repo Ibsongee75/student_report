@@ -931,6 +931,39 @@ function ensureXLSX() {
    page is refreshed. A real tap on a link is always allowed, so
    every generated file also gets this "tap to save" banner.
    --------------------------------------------------------- */
+function isNativeApp() {
+    return !!(window.Capacitor && window.Capacitor.isNativePlatform &&
+              window.Capacitor.isNativePlatform());
+}
+
+function blobToBase64(blob) {
+    return new Promise(function (resolve, reject) {
+        const reader = new FileReader();
+        reader.onloadend = function () {
+            const s = String(reader.result || "");
+            resolve(s.slice(s.indexOf(",") + 1));
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+    });
+}
+
+async function saveFileInApp(url, fileName) {
+    const Filesystem = window.Capacitor.Plugins.Filesystem;
+    const Share = window.Capacitor.Plugins.Share;
+    const blob = await (await fetch(url)).blob();
+    const data = await blobToBase64(blob);
+    const saved = await Filesystem.writeFile({
+        path: fileName,
+        data: data,
+        directory: "CACHE"
+    });
+    await Share.share({
+        title: fileName,
+        url: saved.uri,
+        dialogTitle: "Save or share " + fileName
+    });
+}
 
 function showManualDownloadLink(url, fileName) {
 
@@ -950,6 +983,15 @@ function showManualDownloadLink(url, fileName) {
     link.href = url;
     link.download = fileName;
     link.textContent = "⬇ Tap here to save " + fileName;
+    if (isNativeApp()) {
+        link.textContent = "⬇ Tap to save / share " + fileName;
+        link.addEventListener("click", function (e) {
+            e.preventDefault();
+            saveFileInApp(url, fileName).catch(function (err) {
+                alert("Could not save file: " + (err && err.message ? err.message : err));
+            });
+        });
+    }
     link.style.cssText = "color:#ffd54f;font-weight:700;text-decoration:underline;word-break:break-all;";
 
     const close = document.createElement("button");
