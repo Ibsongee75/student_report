@@ -79,7 +79,7 @@
 
   /* print -> Android print dialog (has "Save as PDF") */
   window.print = function () {
-    var P = plugin("AppPrint");
+    var P = plugin("PrintPlugin");
     if (!P) { alert("Print needs the latest app build."); return; }
     P.print({ name: document.title || "School Administrator" })
       .catch(function (e) { alert("Print failed: " + ((e && e.message) || e)); });
