@@ -875,6 +875,130 @@ body.srg-staff-mode:not(.srg-role-subject) #srg-step-1b {
 }
 </style>
 
+<style>
+/* =========================================
+   PAGES: guidelines, contact, workspace pages
+========================================= */
+.srg-page-off { display: none !important; }
+
+.srg-page-public { display: none; }
+.srg-page-public.srg-page-on { display: block; }
+#srg-guidelines .srg-landing { display: block !important; }
+
+#srg-guidelines,
+#srgContactPage,
+#srgWorkspaceHome,
+#srg-schools,
+#subscriptionPlans,
+#srgPageBar {
+    scroll-margin-top: 72px;
+}
+
+.srg-guide-intro {
+    background: linear-gradient(180deg, var(--srg-manila) 0%, var(--srg-paper) 100%);
+    border-bottom: 1px solid var(--srg-line);
+    padding: 40px 24px 44px;
+}
+
+.srg-guide-intro-inner {
+    max-width: 1080px;
+    margin: 0 auto;
+}
+
+.srg-guide-intro .srg-hero-lede {
+    max-width: 62ch;
+}
+
+.srg-guide-intro .srg-btn {
+    margin-bottom: 22px;
+    padding: 9px 18px;
+    font-size: 0.92rem;
+}
+
+.srg-guide-cta {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 8px 24px 56px;
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+}
+
+.srg-contact-wrap {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 24px 16px 8px;
+}
+
+.srg-contact-wrap .srg-btn {
+    margin-bottom: 16px;
+    padding: 9px 18px;
+    font-size: 0.92rem;
+    font-family: 'Public Sans', system-ui, sans-serif;
+}
+
+.srg-pagebar {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    margin: 0 0 14px;
+    font-family: 'Public Sans', system-ui, sans-serif;
+}
+
+.srg-pagebar a {
+    display: inline-block;
+    padding: 8px 16px;
+    border: 1.5px solid var(--srg-ink);
+    border-radius: var(--srg-radius);
+    color: var(--srg-ink);
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 0.92rem;
+}
+
+.srg-pagebar a:hover {
+    background: rgba(27, 42, 74, 0.06);
+}
+
+.srg-pagebar span {
+    font-weight: 700;
+    color: var(--srg-ink);
+}
+
+.srg-tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 12px;
+    margin-top: 16px;
+}
+
+.srg-tile {
+    display: block;
+    padding: 16px 18px;
+    border: 1px solid var(--srg-line);
+    border-radius: var(--srg-radius);
+    background: var(--srg-paper);
+    color: var(--srg-ink);
+    text-decoration: none;
+    font-family: 'Public Sans', system-ui, sans-serif;
+    font-weight: 600;
+    line-height: 1.3;
+    transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+.srg-tile:hover,
+.srg-tile:focus-visible {
+    border-color: var(--srg-ink);
+    transform: translateY(-1px);
+}
+
+.srg-menu a[aria-current="page"] {
+    font-weight: 700;
+    text-decoration: underline;
+}
+</style>
+
 </head>
 
 
@@ -910,8 +1034,7 @@ body.srg-staff-mode:not(.srg-role-subject) #srg-step-1b {
                 <li class="srg-menu-note">📝 <strong>Admission:</strong> Contact the school for a link to fill the form for admission.</li>
 
                 <li class="srg-group-home srg-menu-label">For schools</li>
-                <li class="srg-group-home"><a href="#srg-features">What it handles</a></li>
-                <li class="srg-group-home"><a href="#srg-how-it-works">How it works</a></li>
+                <li class="srg-group-home"><a href="#srg-guidelines">📖 Guidelines</a></li>
 
                 <li class="srg-group-app srg-menu-label">Your workspace</li>
                 <li class="srg-group-app"><a href="#schoolInformationSection">🏫 School information</a></li>
@@ -925,14 +1048,12 @@ body.srg-staff-mode:not(.srg-role-subject) #srg-step-1b {
                 <li class="srg-group-app"><a href="#srg-step-1b">Step 1B: Subject templates</a></li>
                 <li class="srg-group-app"><a href="#srg-step-1c">Step 1C: Download Master template</a></li>
                 <li class="srg-group-app"><a href="#cumulativeSection">📊 Annual / Cumulative</a></li>
-                <li class="srg-group-app"><a href="#srg-step-2">Step 2: Upload master template</a></li>
                 <li class="srg-group-app"><a href="#studentPhotosSection">📷 Student pictures</a></li>
-                <li class="srg-group-app"><a href="#reportSection">Step 3: Generate reports</a></li>
+                <li class="srg-group-app"><a href="#srg-step-2">Step 2 &amp; 3: Upload template &amp; generate reports</a></li>
                 <li class="srg-group-app"><a href="#publishResultsSection">🌐 Publish results</a></li>
 
                 <li id="srgMenuApp" style="display:none"><a href="https://github.com/ibsongee75/school-administrator/releases/latest/download/school.administrator.apk" download class="srg-menu-public">📱 <span>Download Android app<small>Install School Administrator on your phone</small></span></a></li>
 
-                <li><a href="#contactSection">Contact &amp; Support</a></li>
                 <li class="srg-group-home"><a href="#authSection" class="srg-menu-cta">Get started</a></li>
 
             </ul>
@@ -964,7 +1085,7 @@ body.srg-staff-mode:not(.srg-role-subject) #srg-step-1b {
                 </p>
                 <div class="srg-hero-actions">
                     <a href="#authSection" class="srg-btn srg-btn-primary">Get started</a>
-                    <a href="#srg-how-it-works" class="srg-btn srg-btn-ghost">See how it works</a>
+                    <a href="#srg-guidelines" class="srg-btn srg-btn-ghost">Guidelines</a>
                     <a href="#srg-parents" class="srg-btn srg-btn-ghost">Parents &amp; students</a>
                 </div>
             </div>
@@ -1020,6 +1141,47 @@ body.srg-staff-mode:not(.srg-role-subject) #srg-step-1b {
 
     </section>
 
+
+    <!-- =========================================
+         FOR SCHOOLS
+    ========================================= -->
+
+    <section class="srg-portal" id="srg-schools" aria-labelledby="srg-schools-heading">
+
+        <h2 id="srg-schools-heading" class="srg-section-title">For schools</h2>
+
+        <div class="srg-portal-grid">
+
+            <a class="srg-portal-card" href="#srg-guidelines">
+                <strong>📖 Guidelines</strong>
+                <span>See what the generator handles and how it works, step by step.</span>
+            </a>
+
+        </div>
+
+    </section>
+
+
+</div>
+
+    <!-- =========================================
+         GUIDELINES PAGE (opens from the "Guidelines" link)
+    ========================================= -->
+
+    <div id="srg-guidelines" class="srg-page-public">
+        <div class="srg-landing">
+
+            <header class="srg-guide-intro">
+                <div class="srg-guide-intro-inner">
+                    <a href="#" class="srg-btn srg-btn-ghost">&larr; Back</a>
+                    <h1 class="srg-hero-title">Guidelines</h1>
+                    <p class="srg-hero-lede">
+                        What the generator handles for you, and how it works
+                        from setting up a class to printing or publishing
+                        the reports.
+                    </p>
+                </div>
+            </header>
 
     <!-- =========================================
          FEATURE LEDGER
@@ -1167,7 +1329,14 @@ body.srg-staff-mode:not(.srg-role-subject) #srg-step-1b {
 
     </section>
 
-</div>
+            <div class="srg-guide-cta">
+                <a href="#authSection" class="srg-btn srg-btn-primary">Get started</a>
+                <a href="#" class="srg-btn srg-btn-ghost">&larr; Back</a>
+            </div>
+
+        </div>
+    </div>
+
 
 
 
@@ -1687,6 +1856,22 @@ body.srg-staff-mode:not(.srg-role-subject) #srg-step-1b {
 
             <div class="card" id="staffRoleBanner" style="display: none;"></div>
 
+            <!-- Back bar shown on every workspace page -->
+            <div id="srgPageBar" class="srg-pagebar srg-page-off">
+                <a href="#srg-workspace">&larr; Workspace</a>
+                <span id="srgPageTitle"></span>
+            </div>
+
+            <!-- =========================================
+                 WORKSPACE HOME (page links are built from the menu)
+            ========================================= -->
+
+            <section class="card" id="srgWorkspaceHome">
+                <h2>Workspace</h2>
+                <p>Choose what you want to work on. Each one opens on its own page.</p>
+                <div class="srg-tiles" id="srgTiles"></div>
+            </section>
+
 
 
             <!-- =========================================
@@ -2033,23 +2218,6 @@ body.srg-staff-mode:not(.srg-role-subject) #srg-step-1b {
 
 
             <!-- =================================
-                 STEP 2
-            ================================= -->
-
-            <section class="card" id="srg-step-2">
-                <h2>Step 2: Upload Completed Master Template</h2>
-
-                <p>
-                    After completing the General Master Excel Template, upload it here to load the
-                    final class results into the report generator.
-                </p>
-
-                <input type="file" id="excelFile" accept=".xlsx,.xls">
-                <p id="fileStatus"></p>
-            </section>
-
-
-            <!-- =================================
                  STUDENT PICTURES (optional)
             ================================= -->
 
@@ -2082,6 +2250,23 @@ body.srg-staff-mode:not(.srg-role-subject) #srg-step-1b {
 
                 <p id="studentPhotoStatus" style="font-weight:600;"></p>
 
+            </section>
+
+
+            <!-- =================================
+                 STEP 2
+            ================================= -->
+
+            <section class="card" id="srg-step-2">
+                <h2>Step 2: Upload Completed Master Template</h2>
+
+                <p>
+                    After completing the General Master Excel Template, upload it here to load the
+                    final class results into the report generator.
+                </p>
+
+                <input type="file" id="excelFile" accept=".xlsx,.xls">
+                <p id="fileStatus"></p>
             </section>
 
 
@@ -2260,11 +2445,21 @@ body.srg-staff-mode:not(.srg-role-subject) #srg-step-1b {
         </main>
 
 
-<!-- =========================================
-     CONTACT & SUPPORT
-========================================= -->
 
-<section class="card" id="contactSection">
+      
+        
+
+
+    </div>
+
+    <!-- =========================================
+         CONTACT & SUPPORT PAGE
+    ========================================= -->
+
+    <div id="srgContactPage" class="srg-page-public" hidden style="display:none">
+        <div class="srg-contact-wrap">
+            <a href="#" class="srg-btn srg-btn-ghost">&larr; Back</a>
+            <section class="card" id="contactSection">
 
     <h2>
         📞 Contact & Support
@@ -2289,19 +2484,22 @@ body.srg-staff-mode:not(.srg-role-subject) #srg-step-1b {
     </p>
 
     <p>
-        <strong>WhatsApp🟢/Call☎️:</strong>
+        <strong>WhatsApp/Call:</strong>
         <a href="tel:07030477086">
             07030477086
         </a>
     </p>
 
 </section>
-      
-        <!-- =====================================
-     FOOTER
-===================================== -->
+        </div>
+    </div>
 
-<footer>
+
+    <!-- =========================================
+         FOOTER
+    ========================================= -->
+
+    <footer>
 
     <p>
         Student Report Generator
@@ -2309,6 +2507,13 @@ body.srg-staff-mode:not(.srg-role-subject) #srg-step-1b {
 
     <p>
         © 2026 Ibrahim Abdullahi
+    </p>
+
+    <p class="srg-footer-contact">
+        <strong>Contact &amp; Support:</strong>
+        <a href="tel:07030477086">📞 07030477086</a>
+        &nbsp;|&nbsp;
+        <a href="https://wa.me/2347030477086" target="_blank" rel="noopener">💬 WhatsApp</a>
     </p>
 
     <p>
@@ -2322,9 +2527,6 @@ body.srg-staff-mode:not(.srg-role-subject) #srg-step-1b {
     </p>
 
 </footer>
-
-
-    </div>
 
 
 
@@ -2370,8 +2572,12 @@ body.srg-staff-mode:not(.srg-role-subject) #srg-step-1b {
             if (!staff) { li.style.display = ""; return; }
             var href = a.getAttribute("href") || "";
             if (href.charAt(0) !== "#") { li.style.display = ""; return; }
+            if (href === "#srg-guidelines") { li.style.display = ""; return; }
             var target = document.querySelector(href);
+            var wasOff = target && target.classList.contains("srg-page-off");
+            if (wasOff) target.classList.remove("srg-page-off");
             var hidden = !target || window.getComputedStyle(target).display === "none";
+            if (wasOff) target.classList.add("srg-page-off");
             li.style.display = hidden ? "none" : "";
         });
     }
@@ -2407,6 +2613,399 @@ body.srg-staff-mode:not(.srg-role-subject) #srg-step-1b {
     document.addEventListener("click", function (event) {
         if (!event.target.closest(".srg-topbar")) setOpen(false);
     });
+})();
+</script>
+
+<script>
+/* Pages: shows one page at a time.
+   Public:  home (hero + sign in), Guidelines, Contact & Support.
+   Signed in: Workspace home, then each section on its own page.
+   Nothing is moved or renamed, so the existing scripts keep working. */
+(function () {
+    var app = document.getElementById("appSection");
+    var main = app && app.querySelector("main");
+    var nav = document.querySelector(".srg-topbar");
+    var menu = document.getElementById("srgMenu");
+    var home = document.querySelector(".srg-landing");
+    var auth = document.getElementById("authSection");
+    var guide = document.getElementById("srg-guidelines");
+    var contact = document.getElementById("srgContactPage");
+    var wsHome = document.getElementById("srgWorkspaceHome");
+    var bar = document.getElementById("srgPageBar");
+    var barTitle = document.getElementById("srgPageTitle");
+    var tiles = document.getElementById("srgTiles");
+    if (!app || !main || !menu) return;
+
+    var OFF = "srg-page-off", ON = "srg-page-on";
+    var GUIDE_IDS = { "srg-guidelines": 1, "srg-features": 1, "srg-how-it-works": 1 };
+    var CONTACT_IDS = {};
+    var TOP_IDS = { "srg-guidelines": 1, "contactSection": 1, "srgContactPage": 1 };
+    var OUTPUT_PAGES = ["srg-step-2", "reportSection", "cumulativeSection"];
+    /* Pages that open together as one page */
+    var GROUPS = { "srg-step-2": ["srg-step-2", "reportSection"],
+                   "reportSection": ["srg-step-2", "reportSection"] };
+    var lastKey = null;
+    var busy = false;
+    var plans = document.getElementById("subscriptionPlans");
+    var appHeader = app.querySelector(":scope > header");
+    var plansShown = false;
+
+    /* Subscription plans open as their own page: everything else is hidden
+       and the view jumps to the top of the plans, not the top of the site. */
+    function goToPlans() {
+        var go = function () {
+            if (plans) plans.scrollIntoView({ block: "start", behavior: "instant" });
+        };
+        window.requestAnimationFrame(go);
+        setTimeout(go, 150);
+        setTimeout(go, 500);
+    }
+
+    function setOff(el, off) { if (el) el.classList.toggle(OFF, off); }
+    function setOn(el, on) { if (el) el.classList.toggle(ON, on); }
+
+    function currentId() {
+        var h = location.hash.replace(/^#/, "");
+        try { h = decodeURIComponent(h); } catch (e) {}
+        return h;
+    }
+
+    function isSignedIn() {
+        return window.getComputedStyle(app).display !== "none";
+    }
+
+    function tops() {
+        return Array.prototype.filter.call(main.children, function (c) {
+            return c.id !== "staffRoleBanner" && c !== bar;
+        });
+    }
+
+    function isOutput(el) {
+        return el.classList.contains("print-button-container") ||
+               el.id === "reportContainer";
+    }
+
+    function menuLinks() {
+        return Array.prototype.slice.call(
+            menu.querySelectorAll(".srg-group-app a"));
+    }
+
+    function outsideTargets() {
+        var out = [];
+        menuLinks().forEach(function (a) {
+            var h = a.getAttribute("href") || "";
+            if (h.charAt(0) !== "#" || h.length < 2) return;
+            var id = h.slice(1);
+            if (GUIDE_IDS[id]) return;
+            var el = document.getElementById(id);
+            if (el && !main.contains(el)) out.push(el);
+        });
+        return out;
+    }
+
+    var autoN = 0;
+
+    var KNOWN = "main, nav.srg-topbar, .srg-landing, #authSection, " +
+        "#staffStatusSection, #resetPasswordSection, #subscriptionPlans, " +
+        "#srg-guidelines, #srgContactPage, footer, #appBanner, " +
+        "#appSection > header, script, style";
+
+    /* The school subject section is added by your scripts outside the
+       workspace (it showed at the bottom of the sign-in page). Move it into
+       the workspace, at the top, so it is a normal page there. */
+    function adoptSubjects() {
+        var anchor = document.getElementById("schoolInformationSection");
+        var moved = false;
+        Array.prototype.slice.call(
+            document.querySelectorAll("[id], h1, h2, h3, h4")
+        ).forEach(function (el) {
+            if (el === app || el === document.body) return;
+            if (el.closest(KNOWN)) return;
+            var byId = el.id && /subject/i.test(el.id);
+            var byHead = /^H[1-4]$/.test(el.tagName) && /subject/i.test(el.textContent || "");
+            if (!byId && !byHead) return;
+            var box = el.closest("section, .card");
+            if (!box && /^(DIV|SECTION)$/.test(el.tagName)) box = el;
+            if (!box || box === app || box.contains(app)) return;
+            while (box.parentElement && box.parentElement !== document.body &&
+                   box.parentElement !== app && box.parentElement.children.length === 1) {
+                box = box.parentElement;
+            }
+            if (box.matches(KNOWN) || box.querySelector(KNOWN) || box.contains(main)) return;
+            if (main.contains(box)) return;
+            if (anchor && anchor.parentNode === main) main.insertBefore(box, anchor);
+            else main.insertBefore(box, wsHome ? wsHome.nextSibling : main.firstChild);
+            moved = true;
+        });
+        return moved;
+    }
+
+    /* Any section in the workspace that has no menu link (for example one
+       your scripts add) gets its own link and tile, titled from its heading,
+       so it never ends up hidden. */
+    function ensureAutoLinks() {
+        var mapped = {};
+        menuLinks().forEach(function (a) {
+            var h = a.getAttribute("href") || "";
+            if (h.charAt(0) === "#") mapped[h.slice(1)] = 1;
+        });
+        var list = tops();
+        list.forEach(function (t, i) {
+            if (isOutput(t) || t === wsHome) return;
+            if (!/^(SECTION|DIV|ARTICLE)$/.test(t.tagName)) return;
+            if (t.id && mapped[t.id]) return;
+            var covered = Object.keys(mapped).some(function (id) {
+                var e = document.getElementById(id);
+                return e && t.contains(e);
+            });
+            if (covered) return;
+            var head = t.querySelector("h1, h2, h3");
+            if (!head) return;
+            if (hiddenIgnoringOff(t)) return;
+            if (!t.id) t.id = "srg-auto-" + (++autoN);
+            var title = (head.textContent || "").replace(/\s+/g, " ").trim();
+            if (!title) return;
+
+            var li = document.createElement("li");
+            li.className = "srg-group-app srg-auto";
+            var link = document.createElement("a");
+            link.setAttribute("href", "#" + t.id);
+            link.textContent = title;
+            li.appendChild(link);
+
+            var ref = null;
+            for (var j = i - 1; j >= 0 && !ref; j--) {
+                menuLinks().forEach(function (l) {
+                    var h = l.getAttribute("href") || "";
+                    if (h.charAt(0) !== "#") return;
+                    var tg = document.getElementById(h.slice(1));
+                    if (tg && list[j].contains(tg)) ref = l.parentNode;
+                });
+            }
+            if (ref && ref.parentNode) {
+                ref.parentNode.insertBefore(li, ref.nextSibling);
+            } else {
+                var first = menu.querySelector("li.srg-group-app:not(.srg-menu-label)");
+                if (first) first.parentNode.insertBefore(li, first);
+                else menu.appendChild(li);
+            }
+            mapped[t.id] = 1;
+        });
+    }
+
+    function resolveApp(id) {
+        if (!id || id === "srg-workspace") return null;
+        var el = document.getElementById(id);
+        if (el && app.contains(el) && el !== wsHome && el.id !== "staffRoleBanner") return el;
+        return null;
+    }
+
+    function titleFor(id) {
+        if (id === "reportSection") id = "srg-step-2";
+        var found = "";
+        menuLinks().forEach(function (a) {
+            if (a.getAttribute("href") === "#" + id) found = a.textContent.trim();
+        });
+        return found;
+    }
+
+    function renderApp(mode, target) {
+        var list = tops();
+        var active = null;
+        var showOut = false;
+
+        if (mode === "home") {
+            active = wsHome;
+        } else if (mode === "page" && target) {
+            var ids = GROUPS[target.id] || [target.id];
+            active = list.filter(function (t) {
+                return ids.some(function (gid) {
+                    var g = document.getElementById(gid);
+                    return g && t.contains(g);
+                });
+            });
+            if (!active.length) active = null;
+            showOut = OUTPUT_PAGES.some(function (pid) {
+                var s = document.getElementById(pid);
+                return s && s.contains(target);
+            });
+        }
+
+        list.forEach(function (t) {
+            var keep = (active && active.length ? active.indexOf(t) > -1 : t === active) ||
+                       (isOutput(t) && showOut);
+            setOff(t, !keep);
+        });
+
+        outsideTargets().forEach(function (el) {
+            setOff(el, !(mode === "page" && el === target));
+        });
+
+        var showBar = mode === "page" && !!target;
+        setOff(bar, !showBar);
+        if (showBar && barTitle) {
+            barTitle.textContent = titleFor(target.id) || "";
+        }
+    }
+
+    function clearApp() {
+        tops().forEach(function (t) { setOff(t, false); });
+        outsideTargets().forEach(function (el) { setOff(el, false); });
+        setOff(bar, true);
+    }
+
+    function hiddenIgnoringOff(el) {
+        var off = el.classList.contains(OFF);
+        if (off) el.classList.remove(OFF);
+        var hidden = window.getComputedStyle(el).display === "none";
+        if (off) el.classList.add(OFF);
+        return hidden;
+    }
+
+    function buildTiles() {
+        if (!tiles) return;
+        var staffMode = document.body.classList.contains("srg-staff-mode");
+        var html = [];
+        menuLinks().forEach(function (a) {
+            var li = a.parentNode;
+            var href = a.getAttribute("href") || "";
+            if (staffMode && li.classList.contains("srg-owner-only")) return;
+            if (href.charAt(0) === "#" && href.length > 1 && !GUIDE_IDS[href.slice(1)]) {
+                var el = document.getElementById(href.slice(1));
+                if (el && hiddenIgnoringOff(el)) return;
+            }
+            html.push({ href: href, label: a.textContent.trim() });
+        });
+        var sig = JSON.stringify(html);
+        if (tiles.getAttribute("data-sig") === sig) return;
+        tiles.setAttribute("data-sig", sig);
+        tiles.innerHTML = "";
+        html.forEach(function (item) {
+            var link = document.createElement("a");
+            link.className = "srg-tile";
+            link.setAttribute("href", item.href);
+            link.textContent = item.label;
+            tiles.appendChild(link);
+        });
+    }
+
+    function markMenu(id) {
+        menu.querySelectorAll("a").forEach(function (a) {
+            var h = a.getAttribute("href") || "";
+            var match = h === "#" + id && id !== "";
+            if (match) a.setAttribute("aria-current", "page");
+            else a.removeAttribute("aria-current");
+        });
+    }
+
+    function apply() {
+        if (busy) return;
+        busy = true;
+        try {
+            var plansOn = !!plans && window.getComputedStyle(plans).display !== "none";
+            if (plansOn) {
+                setOn(guide, false);
+                setOn(contact, false);
+                setOff(home, true);
+                setOff(auth, true);
+                renderApp("none");
+                setOff(appHeader, true);
+                markMenu("");
+                if (!plansShown) {
+                    plansShown = true;
+                    lastKey = "plans";
+                    goToPlans();
+                }
+                return;
+            }
+            if (plansShown) {
+                plansShown = false;
+                setOff(appHeader, false);
+                lastKey = null;
+            }
+
+            var id = currentId();
+            var inApp = isSignedIn();
+            var isGuide = !!GUIDE_IDS[id];
+            var isContact = !!CONTACT_IDS[id];
+            var pub = isGuide || isContact;
+
+            setOn(guide, isGuide);
+            setOn(contact, isContact);
+            setOff(home, pub);
+            setOff(auth, pub);
+
+            var target = null;
+            adoptSubjects();
+            if (inApp) ensureAutoLinks();
+            if (inApp) {
+                if (pub) {
+                    renderApp("none");
+                } else {
+                    target = resolveApp(id);
+                    if (target) renderApp("page", target);
+                    else { renderApp("home"); buildTiles(); }
+                }
+            } else {
+                clearApp();
+            }
+
+            markMenu(id);
+
+            var key = (inApp ? "in:" : "out:") + id;
+            if (key !== lastKey) {
+                lastKey = key;
+                var anchor = id && !TOP_IDS[id] ? document.getElementById(id) : null;
+                if (anchor && (anchor === auth || (guide && guide.contains(anchor)) ||
+                    (home && home.contains(anchor)))) {
+                    window.requestAnimationFrame(function () {
+                        anchor.scrollIntoView();
+                    });
+                } else if (inApp && !pub) {
+                    window.requestAnimationFrame(function () {
+                        var el = bar && !bar.classList.contains(OFF) ? bar : wsHome;
+                        if (el) el.scrollIntoView();
+                    });
+                } else {
+                    window.scrollTo(0, 0);
+                }
+            }
+        } finally {
+            busy = false;
+        }
+    }
+
+    window.addEventListener("hashchange", apply);
+
+    var toggleBtn = document.getElementById("srgMenuToggle");
+    if (toggleBtn) {
+        toggleBtn.addEventListener("click", function () {
+            if (isSignedIn()) ensureAutoLinks();
+        });
+    }
+
+    /* Re-apply when sign-in state changes or the app injects a section
+       (such as fees or attendance) after the page has loaded. */
+    if (window.MutationObserver) {
+        new MutationObserver(apply).observe(app, {
+            attributes: true,
+            attributeFilter: ["style", "class"]
+        });
+        if (plans) {
+            new MutationObserver(apply).observe(plans, {
+                attributes: true,
+                attributeFilter: ["style", "class", "hidden"]
+            });
+        }
+        new MutationObserver(apply).observe(main, { childList: true });
+        new MutationObserver(apply).observe(document.body, { childList: true });
+        new MutationObserver(apply).observe(app, { childList: true });
+        new MutationObserver(function () {
+            if (isSignedIn()) apply();
+        }).observe(document.body, { attributes: true, attributeFilter: ["class"] });
+    }
+
+    apply();
 })();
 </script>
 
