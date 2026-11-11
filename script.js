@@ -211,6 +211,8 @@ function studentForFingerprint(student) {
 function reportSettingsForFingerprint() {
     const copy = Object.assign({}, reportSettings);
     delete copy.commentBank;
+    /* Changing the report outlook must not make reports count as new. */
+    delete copy.reportTemplate;
     return copy;
 }
 
@@ -5951,6 +5953,8 @@ function loadSchoolInformation() {
 
     displaySchoolLogoPreview();
 
+    renderReportOutlookPicker();
+
 }
 
 
@@ -6012,6 +6016,262 @@ function saveSchoolInformation() {
 
 }
 
+
+/* =========================================================
+   REPORT OUTLOOK (TEMPLATES)
+
+   Classic is the original layout of this site. Side Header, Green Band,
+   Sectioned and Compact Purple keep its look (colours, boxes, fonts)
+   with a different structure (see "REPORT OUTLOOKS" in style.css).
+   The choice is saved inside reportSettings.reportTemplate, so it
+   is stored with the rest of the school profile and follows the
+   school to every device and staff login.
+   ========================================================= */
+
+const REPORT_TEMPLATES = [
+    {
+        id: "classic",
+        name: "Classic",
+        desc: "Your current layout: centred header, boxed details, green table.",
+        swatches: ["#21391e", "#315c38", "#3f308f"]
+    },
+    {
+        id: "side",
+        name: "Side Header",
+        desc: "Logo on the left, left-aligned header, 3-column details, bar headings.",
+        swatches: ["#21391e", "#315c38", "#e8edf5"]
+    },
+    {
+        id: "band",
+        name: "Green Band",
+        desc: "Solid green header band, underlined headings, one summary strip.",
+        swatches: ["#315c38", "#21391e", "#3f308f"]
+    },
+    {
+        id: "sectioned",
+        name: "Sectioned",
+        desc: "Numbered green section strips, form-style details and shared-border tables.",
+        swatches: ["#315c38", "#e4ede4", "#ffffff"]
+    },
+    {
+        id: "compact",
+        name: "Compact Purple",
+        desc: "Purple accents and tight spacing, good for long subject lists.",
+        swatches: ["#3f308f", "#30246f", "#eceaf7"]
+    }
+];
+
+/* Older saved choices from earlier versions map to the closest new outlook. */
+const LEGACY_REPORT_TEMPLATE_IDS = {
+    modern: "side",
+    elegant: "band",
+    minimal: "sectioned"
+};
+
+function getReportTemplateId() {
+
+    let id = reportSettings && reportSettings.reportTemplate;
+
+    if (LEGACY_REPORT_TEMPLATE_IDS[id]) id = LEGACY_REPORT_TEMPLATE_IDS[id];
+
+    return REPORT_TEMPLATES.some(function (t) { return t.id === id; })
+        ? id
+        : "classic";
+
+}
+
+function renderReportOutlookPicker() {
+
+    const holder = document.getElementById("reportOutlookPicker");
+
+    if (!holder) return;
+
+    const current = getReportTemplateId();
+
+    holder.innerHTML =
+        '<div class="outlook-grid">' +
+        REPORT_TEMPLATES.map(function (t) {
+            return (
+                '<label class="outlook-card' + (t.id === current ? " selected" : "") + '">' +
+                    '<input type="radio" name="reportOutlook" value="' + t.id + '"' +
+                        (t.id === current ? " checked" : "") + '>' +
+                    '<strong>' + t.name + '</strong>' +
+                    '<small>' + t.desc + '</small>' +
+                    '<span class="outlook-swatches">' +
+                        t.swatches.map(function (c) {
+                            return '<i style="background:' + c + ';"></i>';
+                        }).join("") +
+                    '</span>' +
+                '</label>'
+            );
+        }).join("") +
+        '</div>';
+
+    holder.querySelectorAll('input[name="reportOutlook"]').forEach(function (input) {
+        input.addEventListener("change", function () {
+            selectReportTemplate(input.value);
+        });
+    });
+
+    renderReportOutlookPreview();
+
+}
+
+function selectReportTemplate(id) {
+
+    if (!REPORT_TEMPLATES.some(function (t) { return t.id === id; })) return;
+
+    /* Only the school owner can change the outlook (staff logins use it). */
+    if (typeof staffContext !== "undefined" && staffContext) {
+
+        renderReportOutlookPicker();
+
+        const note = document.getElementById("reportOutlookStatus");
+
+        if (note) note.textContent = "Only the school owner can change the report outlook.";
+
+        return;
+
+    }
+
+    reportSettings.reportTemplate = id;
+
+    saveAppData();
+
+    document.querySelectorAll("#reportOutlookPicker .outlook-card").forEach(function (card) {
+        const input = card.querySelector("input");
+        card.classList.toggle("selected", !!input && input.value === id);
+    });
+
+    renderReportOutlookPreview();
+
+    const status = document.getElementById("reportOutlookStatus");
+
+    if (status) {
+        status.textContent =
+            "✓ Outlook saved. Reports you generate from now on will use it. " +
+            "To change reports already generated, generate them again.";
+    }
+
+}
+
+function buildSampleStudentForPreview() {
+
+    const names = (Array.isArray(schoolSubjects) && schoolSubjects.length
+        ? schoolSubjects
+        : ["English Language", "Mathematics", "Basic Science", "Social Studies", "Civic Education"]
+    ).slice(0, 8);
+
+    const sample = {
+        "Student Name": "SAMPLE STUDENT",
+        "Admission No": "0001",
+        "Gender": "Female",
+        "Class": "JSS 1",
+        "Term": "First Term",
+        "Session": "2025/2026",
+        "House": "Blue",
+        "Position": 3
+    };
+
+    const firstCAMax = Number(reportSettings.firstCAMaximum) || 20;
+    const secondCAMax = Number(reportSettings.secondCAMaximum) || 20;
+    const examsMax = Number(reportSettings.examsMaximum) || 60;
+
+    names.forEach(function (name, i) {
+        sample[name + " 1st CA"] = Math.round(firstCAMax * (0.65 + (i % 4) * 0.08));
+        sample[name + " 2nd CA"] = Math.round(secondCAMax * (0.6 + (i % 3) * 0.1));
+        sample[name + " Exams"] = Math.round(examsMax * (0.55 + (i % 5) * 0.07));
+    });
+
+    const behavior = {
+        "Class Teacher's Comment": "A hardworking and well-behaved student. Keep it up.",
+        "Principal's Comment": "An impressive result. Maintain the good work."
+    };
+
+    (Array.isArray(behavioralTraits) ? behavioralTraits : []).forEach(function (trait, i) {
+        behavior[trait] = 4 + (i % 2);
+    });
+
+    sample.__behavior = behavior;
+
+    return sample;
+
+}
+
+let outlookPreviewTimer = null;
+
+function renderReportOutlookPreview() {
+
+    const box = document.getElementById("reportOutlookPreview");
+
+    if (!box) return;
+
+    clearTimeout(outlookPreviewTimer);
+
+    outlookPreviewTimer = setTimeout(function () {
+
+        let reportHtml = "";
+
+        try {
+            reportHtml = createReport(buildSampleStudentForPreview());
+        } catch (error) {
+            console.error("Outlook preview error:", error);
+            box.innerHTML = '<p style="padding:12px;">Preview is not available right now.</p>';
+            return;
+        }
+
+        /* The preview lives in an iframe so it gets a real A4-width viewport
+           (phone media queries do not squeeze it) and uses the page's own CSS. */
+        const styles = Array.from(
+            document.querySelectorAll('style, link[rel="stylesheet"]')
+        ).map(function (el) { return el.outerHTML; }).join("");
+
+        const doc =
+            "<!DOCTYPE html><html><head><meta charset=\"utf-8\">" +
+            "<base href=\"" + document.baseURI + "\">" + styles +
+            "<style>html,body{margin:0;padding:0;background:#fff;}" +
+            ".report{margin:0 !important;box-shadow:none !important;}</style>" +
+            "</head><body>" + reportHtml + "</body></html>";
+
+        let frame = box.querySelector("iframe");
+
+        if (!frame) {
+            box.innerHTML = "";
+            frame = document.createElement("iframe");
+            frame.setAttribute("title", "Report outlook preview");
+            frame.setAttribute("scrolling", "no");
+            box.appendChild(frame);
+        }
+
+        frame.style.height = "1123px";
+        frame.srcdoc = doc;
+
+        const fit = function () {
+            const scale = Math.min(1, box.clientWidth / 794);
+            frame.style.transform = "scale(" + scale + ")";
+            box.style.height = Math.round(1123 * scale) + "px";
+        };
+
+        fit();
+
+        frame.onload = fit;
+
+    }, 120);
+
+}
+
+window.addEventListener("resize", function () {
+
+    const box = document.getElementById("reportOutlookPreview");
+    const frame = box && box.querySelector("iframe");
+
+    if (!frame) return;
+
+    const scale = Math.min(1, box.clientWidth / 794);
+    frame.style.transform = "scale(" + scale + ")";
+    box.style.height = Math.round(1123 * scale) + "px";
+
+});
 
 /* =========================================================
    SCHOOL LOGO UPLOAD
@@ -15561,7 +15821,7 @@ function createReport(student) {
                         )}
                     </td>
 
-                    <td class="grade-cell">
+                    <td class="grade-cell grade-${getGrade(subject.total)}">
                         ${getGrade(
                             subject.total
                         )}
@@ -15715,9 +15975,107 @@ function createReport(student) {
        REPORT
        ===================================================== */
 
+    /* =====================================================
+       OUTLOOK (Classic / Modern / Elegant / Minimal)
+       Classic keeps the original markup exactly. The other
+       outlooks add section headings, comment cards and a footer,
+       which style.css hides or styles per outlook.
+       ===================================================== */
+
+    const reportTemplateId = getReportTemplateId();
+    const isClassicOutlook = reportTemplateId === "classic";
+
+    const sectionHead = function (number, title, subtitle) {
+        if (isClassicOutlook) return "";
+        return (
+            '<div class="section-heading">' +
+                '<span class="section-number">' + number + '</span>' +
+                '<div><h2>' + title + '</h2>' +
+                (subtitle ? '<p>' + subtitle + '</p>' : "") +
+                '</div>' +
+            '</div>'
+        );
+    };
+
+    const commentsHtml = isClassicOutlook
+        ? `
+            <div class="comments">
+
+                <p>
+
+                    <strong>
+                        Class Teacher's Comment & Signature:
+                    </strong>
+
+                </p>
+
+
+                <div class="comment-box">
+
+                    ${escapeHTML(
+                        teacherComment
+                    )}
+
+                </div>
+
+
+                <p>
+
+                    <strong>
+                        Principal's Comment & Signature:
+                    </strong>
+
+                </p>
+
+
+                <div class="comment-box">
+
+                    ${escapeHTML(
+                        principalComment
+                    )}
+
+                </div>
+
+            </div>
+        `
+        : `
+            <div class="comments">
+                ${sectionHead("05", "Assessment &amp; Comments")}
+
+                <div class="comment-grid">
+                    <div class="comment-card">
+                        <div class="comment-label">CLASS TEACHER'S COMMENT</div>
+                        <div class="comment-box">${escapeHTML(teacherComment)}</div>
+                        <div class="signature-line">
+                            <span>Class Teacher</span>
+                            <span>Date</span>
+                        </div>
+                    </div>
+
+                    <div class="comment-card">
+                        <div class="comment-label">PRINCIPAL'S COMMENT</div>
+                        <div class="comment-box">${escapeHTML(principalComment)}</div>
+                        <div class="signature-line">
+                            <span>Principal</span>
+                            <span>Date</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+    const footerHtml = isClassicOutlook
+        ? ""
+        : `
+            <div class="report-footer">
+                <span>Student Academic Report</span>
+                <span>${escapeHTML(student["Term"] || "")} • ${escapeHTML(student["Session"] || "")}</span>
+            </div>
+        `;
+
     return `
 
-        <div class="report" style="position:relative;">
+        <div class="report tpl-${reportTemplateId}" data-report-template="${reportTemplateId}" style="position:relative;">
         ${reportWatermarkHtml()}
 
             <div class="school-header">
@@ -15761,6 +16119,8 @@ function createReport(student) {
 
 
             <!-- STUDENT INFORMATION -->
+
+            ${sectionHead("01", "Student Information", "Personal and class details")}
 
             <div class="student-info">
 
@@ -15882,6 +16242,8 @@ function createReport(student) {
 
             <!-- SUBJECT RESULTS -->
 
+            ${sectionHead("02", "Academic Performance", "Subject-by-subject assessment")}
+
             <table class="result-table">
 
                 <thead>
@@ -15953,6 +16315,8 @@ function createReport(student) {
 
             <!-- SUMMARY -->
 
+            ${sectionHead("03", "Performance Summary")}
+
             <div class="summary"${photoLayout.style}>
 
                 <p>
@@ -16020,6 +16384,8 @@ function createReport(student) {
 
             <div class="behavior-section">
 
+                ${sectionHead("04", "Behavioural Development", "Rating scale: 1 = Lowest &nbsp;•&nbsp; 5 = Highest")}
+
                 <h3>
                     BEHAVIORAL TRAITS
                 </h3>
@@ -16059,50 +16425,16 @@ function createReport(student) {
 
             <!-- COMMENTS -->
 
-            <div class="comments">
+            ${commentsHtml}
 
-                <p>
-
-                    <strong>
-                        Class Teacher's Comment & Signature:
-                    </strong>
-
-                </p>
-
-
-                <div class="comment-box">
-
-                    ${escapeHTML(
-                        teacherComment
-                    )}
-
-                </div>
-
-
-                <p>
-
-                    <strong>
-                        Principal's Comment & Signature:
-                    </strong>
-
-                </p>
-
-
-                <div class="comment-box">
-
-                    ${escapeHTML(
-                        principalComment
-                    )}
-
-                </div>
-
-            </div>
+            ${footerHtml}
 
         </div>
 
     `;
 
 }
+
 
 
 /* =========================================================

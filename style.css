@@ -65,8 +65,8 @@ main {
 
 .card h2 {
     margin-top: 0;
-    color: #131786;
-    font-size: 22px;
+    color: #21391e;
+    font-size: 21px;
 }
 
 
@@ -113,17 +113,16 @@ button:hover {
   display: block;
   margin-top: 15px;
   text-align: center;
-  color: #0c21e2;
+  color: #12355b;
   text-decoration: underline;
   cursor: pointer;
   font-weight: bold;
-  font-size: 17px;
+  font-size: 16px;
 }
 
 .forgot-button:hover {
   color: #0b263f;
 }
-
 
 /* =========================================================
    INPUTS
@@ -899,5 +898,1309 @@ select {
     .behavior-table td:first-child {
         width:
             18%;
+    }
+}
+
+/* =========================================================
+   REPORT OUTLOOKS
+   Classic = the original layout (no overrides needed).
+   Side Header, Green Band, Sectioned and Compact Purple keep the
+   look of the original (same colours, boxes and fonts) with a
+   different structure. The extra elements (section headings,
+   comment cards, footer) are hidden for Classic.
+   ========================================================= */
+
+.report .section-heading,
+.report .report-footer {
+    display: none;
+}
+.report.tpl-side .section-heading,
+.report.tpl-side .report-footer {
+    display: flex;
+}
+.report.tpl-side .behavior-section > h3,
+.report.tpl-side .behavior-section > p {
+    display: none !important;
+}
+.report.tpl-band .section-heading,
+.report.tpl-band .report-footer {
+    display: flex;
+}
+.report.tpl-band .behavior-section > h3,
+.report.tpl-band .behavior-section > p {
+    display: none !important;
+}
+.report.tpl-sectioned .section-heading,
+.report.tpl-sectioned .report-footer {
+    display: flex;
+}
+.report.tpl-sectioned .behavior-section > h3,
+.report.tpl-sectioned .behavior-section > p {
+    display: none !important;
+}
+.report.tpl-compact .section-heading,
+.report.tpl-compact .report-footer {
+    display: flex;
+}
+.report.tpl-compact .behavior-section > h3,
+.report.tpl-compact .behavior-section > p {
+    display: none !important;
+}
+
+/* ---------- SIDE HEADER ----------
+   Logo on the left, text left-aligned, 3-column details, classic bar headings. */
+
+.report.tpl-side .school-header {
+    display:grid !important;
+    grid-template-columns:auto 1fr !important;
+    align-items:center !important;
+    text-align:left !important;
+    margin-bottom:12px !important;
+    padding-bottom:10px !important;
+    border-bottom:3px solid #315c38 !important;
+}
+
+.report.tpl-side .school-logo-container {
+    grid-column:1 !important;
+    grid-row:1 / span 3 !important;
+    display:flex !important;
+    justify-content:center !important;
+    align-items:center !important;
+    width:78px !important;
+    height:78px !important;
+    margin:0 14px 0 0 !important;
+}
+
+.report.tpl-side .school-logo {
+    width:74px !important;
+    height:74px !important;
+    object-fit:contain !important;
+}
+
+.report.tpl-side .school-header h1 {
+    grid-column:2 !important;
+    margin:0 !important;
+    color:#21391e !important;
+    font-size:24px !important;
+    line-height:1.15 !important;
+    text-align:left !important;
+}
+
+.report.tpl-side .school-header p {
+    grid-column:2 !important;
+    margin:3px 0 !important;
+    color:#444444 !important;
+    font-size:13px !important;
+    text-align:left !important;
+}
+
+.report.tpl-side .school-header h2 {
+    grid-column:2 !important;
+    margin:4px 0 0 !important;
+    color:#3f308f !important;
+    font-size:15px !important;
+    letter-spacing:1px !important;
+    text-align:left !important;
+}
+
+.report.tpl-side .section-heading {
+    align-items:center !important;
+    margin:12px 0 6px !important;
+    padding:6px 9px !important;
+    background:#e8edf5 !important;
+    border-left:4px solid #3f308f !important;
+}
+
+.report.tpl-side .section-number {
+    display:none !important;
+}
+
+.report.tpl-side .section-heading > div {
+    display:flex !important;
+    width:100% !important;
+    justify-content:space-between !important;
+    align-items:baseline !important;
+    gap:10px !important;
+}
+
+.report.tpl-side .section-heading h2 {
+    margin:0 !important;
+    color:#21391e !important;
+    font-size:14px !important;
+    font-weight:800 !important;
+    text-transform:uppercase !important;
+    text-align:left !important;
+}
+
+.report.tpl-side .section-heading p {
+    margin:0 !important;
+    color:#555555 !important;
+    font-size:10px !important;
+    text-align:right !important;
+}
+
+.report.tpl-side .student-info {
+    grid-template-columns:repeat(3,1fr) !important;
+    gap:6px !important;
+    margin-bottom:8px !important;
+}
+
+.report.tpl-side .student-info div {
+    padding:5px 8px !important;
+    font-size:13px !important;
+    text-align:left !important;
+}
+
+.report.tpl-side .student-info div strong {
+    display:block !important;
+    margin-bottom:1px !important;
+    color:#21391e !important;
+    font-size:9px !important;
+    letter-spacing:.4px !important;
+    text-transform:uppercase !important;
+}
+
+.report.tpl-side .student-info div:nth-child(2) {
+    order:-1 !important;
+    grid-column:span 2 !important;
+}
+
+.report.tpl-side .result-table {
+    margin-top:0 !important;
+}
+
+.report.tpl-side .result-table th,
+.report.tpl-side .result-table td {
+    padding:5px 6px !important;
+    font-size:12px !important;
+    border:1px solid #8f9d94 !important;
+}
+
+.report.tpl-side .result-table thead th {
+    font-size:10.5px !important;
+}
+
+.report.tpl-side .result-table .grade-cell,
+.report.tpl-side .result-table .total-cell {
+    font-weight:800 !important;
+}
+
+.report.tpl-side .summary {
+    display:flex !important;
+    align-items:center !important;
+    gap:6px !important;
+    margin-top:0 !important;
+    padding:8px !important;
+    border:1px solid #9daaa0 !important;
+    border-left:5px solid #3f308f !important;
+    border-radius:6px !important;
+    background:#f7f7fb !important;
+}
+
+.report.tpl-side .summary p {
+    flex:1 1 0 !important;
+    margin:0 !important;
+    padding:4px !important;
+    text-align:center !important;
+    font-size:15px !important;
+    font-weight:800 !important;
+}
+
+.report.tpl-side .summary p strong {
+    display:block !important;
+    margin-bottom:2px !important;
+    color:#3f308f !important;
+    font-size:10px !important;
+    text-transform:uppercase !important;
+    letter-spacing:.3px !important;
+}
+
+.report.tpl-side .summary .position-value {
+    font-size:15px !important;
+    color:#30246f !important;
+}
+
+.report.tpl-side .summary p:nth-child(n+3) {
+    order:1 !important;
+}
+
+.report.tpl-side .student-photo-box {
+    display:flex !important;
+    align-items:center !important;
+    margin:0 6px !important;
+}
+
+.report.tpl-side .student-photo-box img {
+    width:56px !important;
+    height:70px !important;
+    object-fit:cover !important;
+    border:1px solid #333333 !important;
+    border-radius:2px !important;
+}
+
+.report.tpl-side .behavior-section {
+    margin-top:0 !important;
+}
+
+.report.tpl-side .comments {
+    margin-top:0 !important;
+}
+
+.report.tpl-side .comment-grid {
+    display:grid !important;
+    grid-template-columns:1fr 1fr !important;
+    gap:8px !important;
+}
+
+.report.tpl-side .comment-card {
+    min-width:0 !important;
+    padding:7px !important;
+    background:#fafafa !important;
+    border:1px solid #c8d4cc !important;
+    border-radius:5px !important;
+}
+
+.report.tpl-side .comment-label {
+    margin:0 0 4px !important;
+    color:#21391e !important;
+    font-size:11.5px !important;
+    font-weight:700 !important;
+    text-align:left !important;
+}
+
+.report.tpl-side .comment-box {
+    min-height:38px !important;
+    padding:6px 8px !important;
+    background:#ffffff !important;
+    border:1px solid #aaaaaa !important;
+    border-radius:4px !important;
+    font-size:12px !important;
+    text-align:left !important;
+}
+
+.report.tpl-side .signature-line {
+    display:flex !important;
+    justify-content:space-between !important;
+    gap:20px !important;
+    margin-top:14px !important;
+    padding-top:3px !important;
+    border-top:1px solid #888888 !important;
+    color:#555555 !important;
+    font-size:9px !important;
+}
+
+.report.tpl-side .report-footer {
+    justify-content:space-between !important;
+    gap:14px !important;
+    margin-top:10px !important;
+    padding-top:5px !important;
+    border-top:1px solid #c8d4cc !important;
+    color:#667068 !important;
+    font-size:9px !important;
+}
+
+/* ---------- GREEN BAND ----------
+   Solid green header band, underlined headings, top-bordered detail cards,
+   one summary strip, stacked comment rows. */
+
+.report.tpl-band .school-header {
+    margin-bottom:12px !important;
+    padding:12px !important;
+    background:linear-gradient(135deg,#21391e,#315c38) !important;
+    border:0 !important;
+    border-radius:6px !important;
+    color:#ffffff !important;
+}
+
+.report.tpl-band .school-logo-container {
+    width:72px !important;
+    height:72px !important;
+    margin:0 auto 6px !important;
+    padding:4px !important;
+    background:#ffffff !important;
+    border-radius:50% !important;
+}
+
+.report.tpl-band .school-logo {
+    width:64px !important;
+    height:64px !important;
+    object-fit:contain !important;
+    border-radius:50% !important;
+}
+
+.report.tpl-band .school-header h1 {
+    margin:0 !important;
+    color:#ffffff !important;
+    font-size:24px !important;
+    line-height:1.15 !important;
+}
+
+.report.tpl-band .school-header p {
+    margin:4px 0 !important;
+    color:#d9ead6 !important;
+    font-size:13px !important;
+}
+
+.report.tpl-band .school-header h2 {
+    display:inline-block !important;
+    margin:6px 0 0 !important;
+    padding:4px 18px !important;
+    background:#3f308f !important;
+    color:#ffffff !important;
+    border-radius:20px !important;
+    font-size:13px !important;
+    letter-spacing:1px !important;
+}
+
+.report.tpl-band .section-heading {
+    align-items:baseline !important;
+    margin:12px 0 6px !important;
+    padding:0 0 3px !important;
+    border-bottom:2px solid #315c38 !important;
+}
+
+.report.tpl-band .section-number {
+    display:none !important;
+}
+
+.report.tpl-band .section-heading > div {
+    display:flex !important;
+    align-items:baseline !important;
+    gap:10px !important;
+    text-align:left !important;
+}
+
+.report.tpl-band .section-heading h2 {
+    margin:0 !important;
+    color:#21391e !important;
+    font-size:13.5px !important;
+    font-weight:800 !important;
+    letter-spacing:.5px !important;
+    text-transform:uppercase !important;
+    text-align:left !important;
+}
+
+.report.tpl-band .section-heading p {
+    margin:0 !important;
+    color:#666666 !important;
+    font-size:10px !important;
+    text-align:left !important;
+}
+
+.report.tpl-band .student-info {
+    grid-template-columns:repeat(3,1fr) !important;
+    gap:6px !important;
+    margin-bottom:8px !important;
+}
+
+.report.tpl-band .student-info div {
+    padding:5px 8px !important;
+    background:#ffffff !important;
+    border:1px solid #c8d4cc !important;
+    border-top:3px solid #315c38 !important;
+    border-radius:4px !important;
+    font-size:13px !important;
+    text-align:left !important;
+}
+
+.report.tpl-band .student-info div strong {
+    display:block !important;
+    margin-bottom:1px !important;
+    color:#5b6b5f !important;
+    font-size:9px !important;
+    letter-spacing:.4px !important;
+    text-transform:uppercase !important;
+}
+
+.report.tpl-band .student-info div:nth-child(2) {
+    order:-1 !important;
+    grid-column:span 2 !important;
+}
+
+.report.tpl-band .result-table {
+    margin-top:0 !important;
+    border:1px solid #315c38 !important;
+}
+
+.report.tpl-band .result-table th,
+.report.tpl-band .result-table td {
+    padding:6px 5px !important;
+    font-size:12px !important;
+    border:0 !important;
+    border-bottom:1px solid #d5ded8 !important;
+}
+
+.report.tpl-band .result-table thead th {
+    font-size:10.5px !important;
+}
+
+.report.tpl-band .result-table .total-cell,
+.report.tpl-band .result-table .grade-cell {
+    font-weight:800 !important;
+}
+
+.report.tpl-band .summary {
+    display:flex !important;
+    align-items:stretch !important;
+    gap:0 !important;
+    margin-top:0 !important;
+    padding:6px 0 !important;
+    border:1px solid #9daaa0 !important;
+    border-left:5px solid #3f308f !important;
+    border-radius:6px !important;
+    background:#f7f7fb !important;
+}
+
+.report.tpl-band .summary p {
+    flex:1 1 0 !important;
+    display:flex !important;
+    flex-direction:column !important;
+    align-items:center !important;
+    justify-content:center !important;
+    margin:0 !important;
+    padding:4px 6px !important;
+    border-right:1px solid #d9d9e8 !important;
+    text-align:center !important;
+    font-size:16px !important;
+    font-weight:800 !important;
+}
+
+.report.tpl-band .summary p:nth-child(4) {
+    border-right:0 !important;
+}
+
+.report.tpl-band .summary p strong {
+    display:block !important;
+    margin-bottom:2px !important;
+    color:#3f308f !important;
+    font-size:9.5px !important;
+    text-transform:uppercase !important;
+    letter-spacing:.3px !important;
+}
+
+.report.tpl-band .summary .position-value {
+    font-size:16px !important;
+    color:#30246f !important;
+}
+
+.report.tpl-band .summary p:nth-child(n+3) {
+    order:1 !important;
+}
+
+.report.tpl-band .student-photo-box {
+    display:flex !important;
+    align-items:center !important;
+    margin:0 6px !important;
+}
+
+.report.tpl-band .student-photo-box img {
+    width:56px !important;
+    height:70px !important;
+    object-fit:cover !important;
+    border:1px solid #315c38 !important;
+    border-radius:2px !important;
+}
+
+.report.tpl-band .behavior-section {
+    margin-top:0 !important;
+}
+
+.report.tpl-band .comments {
+    margin-top:0 !important;
+}
+
+.report.tpl-band .comment-grid {
+    display:grid !important;
+    grid-template-columns:1fr !important;
+    gap:8px !important;
+}
+
+.report.tpl-band .comment-card {
+    display:grid !important;
+    grid-template-columns:130px 1fr !important;
+    column-gap:10px !important;
+    align-items:end !important;
+    padding:7px !important;
+    background:#fafafa !important;
+    border:1px solid #c8d4cc !important;
+    border-radius:5px !important;
+}
+
+.report.tpl-band .comment-label {
+    grid-column:1 !important;
+    grid-row:1 / span 2 !important;
+    align-self:center !important;
+    margin:0 !important;
+    color:#21391e !important;
+    font-size:11.5px !important;
+    font-weight:700 !important;
+    text-align:left !important;
+}
+
+.report.tpl-band .comment-box {
+    grid-column:2 !important;
+    min-height:34px !important;
+    padding:6px 8px !important;
+    background:#ffffff !important;
+    border:1px solid #aaaaaa !important;
+    border-radius:4px !important;
+    font-size:12px !important;
+    text-align:left !important;
+}
+
+.report.tpl-band .signature-line {
+    grid-column:2 !important;
+    display:flex !important;
+    justify-content:flex-end !important;
+    gap:30px !important;
+    margin-top:12px !important;
+    padding:0 !important;
+    border:0 !important;
+    color:#555555 !important;
+    font-size:9px !important;
+}
+
+.report.tpl-band .signature-line span {
+    min-width:100px !important;
+    padding-top:3px !important;
+    border-top:1px solid #888888 !important;
+    text-align:center !important;
+}
+
+.report.tpl-band .report-footer {
+    justify-content:center !important;
+    gap:14px !important;
+    margin-top:10px !important;
+    padding-top:5px !important;
+    border-top:1px solid #c8d4cc !important;
+    color:#667068 !important;
+    font-size:9px !important;
+}
+
+/* ---------- SECTIONED ----------
+   Double-ruled header, solid green section strips, shared-border form grid and cells. */
+
+.report.tpl-sectioned .school-header {
+    margin-bottom:10px !important;
+    padding:10px 0 10px !important;
+    border-top:3px solid #315c38 !important;
+    border-bottom:3px double #315c38 !important;
+}
+
+.report.tpl-sectioned .school-logo-container {
+    width:70px !important;
+    height:70px !important;
+    margin:0 auto 6px !important;
+}
+
+.report.tpl-sectioned .school-logo {
+    width:66px !important;
+    height:66px !important;
+    object-fit:contain !important;
+}
+
+.report.tpl-sectioned .school-header h1 {
+    margin:0 !important;
+    color:#21391e !important;
+    font-size:25px !important;
+    line-height:1.15 !important;
+}
+
+.report.tpl-sectioned .school-header p {
+    margin:4px 0 !important;
+    font-size:13px !important;
+}
+
+.report.tpl-sectioned .school-header h2 {
+    margin:6px 0 0 !important;
+    color:#3f308f !important;
+    font-size:16px !important;
+    letter-spacing:1.5px !important;
+}
+
+.report.tpl-sectioned .section-heading {
+    align-items:center !important;
+    margin:11px 0 0 !important;
+    padding:5px 10px !important;
+    background:#315c38 !important;
+    color:#ffffff !important;
+}
+
+.report.tpl-sectioned .section-number {
+    display:inline-flex !important;
+    align-items:center !important;
+    justify-content:center !important;
+    flex:0 0 auto !important;
+    width:20px !important;
+    height:20px !important;
+    margin-right:8px !important;
+    background:#ffffff !important;
+    color:#315c38 !important;
+    border-radius:3px !important;
+    font-size:10px !important;
+    font-weight:800 !important;
+}
+
+.report.tpl-sectioned .section-heading > div {
+    display:flex !important;
+    width:100% !important;
+    justify-content:space-between !important;
+    align-items:baseline !important;
+    gap:10px !important;
+}
+
+.report.tpl-sectioned .section-heading h2 {
+    margin:0 !important;
+    color:#ffffff !important;
+    font-size:12.5px !important;
+    font-weight:800 !important;
+    letter-spacing:.5px !important;
+    text-transform:uppercase !important;
+    text-align:left !important;
+}
+
+.report.tpl-sectioned .section-heading p {
+    margin:0 !important;
+    color:#d6e6d3 !important;
+    font-size:10px !important;
+    text-align:right !important;
+}
+
+.report.tpl-sectioned .student-info {
+    grid-template-columns:1fr 1fr !important;
+    gap:0 !important;
+    margin-bottom:0 !important;
+    border:1px solid #315c38 !important;
+    border-top:0 !important;
+}
+
+.report.tpl-sectioned .student-info div {
+    display:flex !important;
+    justify-content:space-between !important;
+    align-items:baseline !important;
+    gap:8px !important;
+    padding:5px 9px !important;
+    background:#ffffff !important;
+    border:0 !important;
+    border-bottom:1px solid #c8d4cc !important;
+    border-radius:0 !important;
+    font-size:13px !important;
+    text-align:right !important;
+}
+
+.report.tpl-sectioned .student-info div:nth-child(odd) {
+    border-right:1px solid #c8d4cc !important;
+}
+
+.report.tpl-sectioned .student-info div strong {
+    color:#21391e !important;
+    text-align:left !important;
+    white-space:nowrap !important;
+}
+
+.report.tpl-sectioned .result-table {
+    margin-top:0 !important;
+    border:1px solid #315c38 !important;
+    border-top:0 !important;
+}
+
+.report.tpl-sectioned .result-table th,
+.report.tpl-sectioned .result-table td {
+    padding:5px 6px !important;
+    font-size:12px !important;
+    border:1px solid #c3cec7 !important;
+}
+
+.report.tpl-sectioned .result-table thead th {
+    background:#e4ede4 !important;
+    color:#21391e !important;
+    border-bottom:2px solid #315c38 !important;
+    font-size:10.5px !important;
+}
+
+.report.tpl-sectioned .result-table tfoot th {
+    background:#e4ede4 !important;
+    color:#21391e !important;
+    border-top:2px solid #315c38 !important;
+}
+
+.report.tpl-sectioned .result-table .total-cell,
+.report.tpl-sectioned .result-table .grade-cell {
+    font-weight:800 !important;
+}
+
+.report.tpl-sectioned .summary {
+    display:flex !important;
+    align-items:stretch !important;
+    gap:0 !important;
+    margin-top:0 !important;
+    padding:0 !important;
+    background:#ffffff !important;
+    border:1px solid #315c38 !important;
+    border-top:0 !important;
+    border-radius:0 !important;
+}
+
+.report.tpl-sectioned .summary p {
+    flex:1 1 0 !important;
+    display:flex !important;
+    flex-direction:column !important;
+    align-items:center !important;
+    justify-content:center !important;
+    margin:0 !important;
+    padding:8px 4px !important;
+    border-right:1px solid #c8d4cc !important;
+    text-align:center !important;
+    font-size:16px !important;
+    font-weight:800 !important;
+}
+
+.report.tpl-sectioned .summary p:nth-child(4) {
+    border-right:0 !important;
+}
+
+.report.tpl-sectioned .summary p strong {
+    display:block !important;
+    margin-bottom:2px !important;
+    color:#3f308f !important;
+    font-size:9.5px !important;
+    text-transform:uppercase !important;
+    letter-spacing:.3px !important;
+}
+
+.report.tpl-sectioned .summary .position-value {
+    font-size:16px !important;
+    color:#30246f !important;
+}
+
+.report.tpl-sectioned .summary p:nth-child(n+3) {
+    order:1 !important;
+}
+
+.report.tpl-sectioned .student-photo-box {
+    display:flex !important;
+    align-items:center !important;
+    margin:0 6px !important;
+}
+
+.report.tpl-sectioned .student-photo-box img {
+    width:56px !important;
+    height:70px !important;
+    object-fit:cover !important;
+    border:1px solid #315c38 !important;
+    border-radius:2px !important;
+}
+
+.report.tpl-sectioned .behavior-section {
+    margin-top:0 !important;
+}
+
+.report.tpl-sectioned .behavior-table {
+    border:1px solid #315c38 !important;
+    border-top:0 !important;
+}
+
+.report.tpl-sectioned .comments {
+    margin-top:0 !important;
+}
+
+.report.tpl-sectioned .comment-grid {
+    display:grid !important;
+    grid-template-columns:1fr 1fr !important;
+    gap:8px !important;
+}
+
+.report.tpl-sectioned .comment-card {
+    min-width:0 !important;
+    padding:7px !important;
+    background:#fafafa !important;
+    border:1px solid #c8d4cc !important;
+    border-radius:5px !important;
+}
+
+.report.tpl-sectioned .comment-label {
+    margin:0 0 4px !important;
+    color:#21391e !important;
+    font-size:11.5px !important;
+    font-weight:700 !important;
+    text-align:left !important;
+}
+
+.report.tpl-sectioned .comment-box {
+    min-height:38px !important;
+    padding:6px 8px !important;
+    background:#ffffff !important;
+    border:1px solid #aaaaaa !important;
+    border-radius:4px !important;
+    font-size:12px !important;
+    text-align:left !important;
+}
+
+.report.tpl-sectioned .signature-line {
+    display:flex !important;
+    justify-content:space-between !important;
+    gap:20px !important;
+    margin-top:14px !important;
+    padding-top:3px !important;
+    border-top:1px solid #888888 !important;
+    color:#555555 !important;
+    font-size:9px !important;
+}
+
+.report.tpl-sectioned .comments .section-heading {
+    margin-bottom:8px !important;
+}
+
+.report.tpl-sectioned .report-footer {
+    justify-content:space-between !important;
+    gap:14px !important;
+    margin-top:10px !important;
+    padding-top:5px !important;
+    border-top:1px solid #c8d4cc !important;
+    color:#667068 !important;
+    font-size:9px !important;
+}
+
+/* ---------- COMPACT PURPLE ----------
+   Purple accents, tight spacing (room for long subject lists), 4-column details. */
+
+.report.tpl-compact .school-header {
+    position:relative !important;
+    margin-bottom:10px !important;
+    padding-bottom:8px !important;
+    border-bottom:3px solid #3f308f !important;
+}
+
+.report.tpl-compact .school-logo-container {
+    position:absolute !important;
+    left:0 !important;
+    top:0 !important;
+    width:58px !important;
+    height:58px !important;
+    margin:0 !important;
+}
+
+.report.tpl-compact .school-logo {
+    width:56px !important;
+    height:56px !important;
+    object-fit:contain !important;
+}
+
+.report.tpl-compact .school-header h1 {
+    margin:0 !important;
+    padding:0 64px !important;
+    color:#30246f !important;
+    font-size:22px !important;
+    line-height:1.15 !important;
+}
+
+.report.tpl-compact .school-header p {
+    margin:3px 0 !important;
+    padding:0 64px !important;
+    color:#444444 !important;
+    font-size:12px !important;
+}
+
+.report.tpl-compact .school-header h2 {
+    margin:4px 0 0 !important;
+    color:#315c38 !important;
+    font-size:14px !important;
+    letter-spacing:1.2px !important;
+}
+
+.report.tpl-compact .section-heading {
+    align-items:center !important;
+    margin:9px 0 5px !important;
+    padding:4px 9px !important;
+    background:#eceaf7 !important;
+    border-left:4px solid #3f308f !important;
+}
+
+.report.tpl-compact .section-number {
+    display:none !important;
+}
+
+.report.tpl-compact .section-heading > div {
+    display:block !important;
+}
+
+.report.tpl-compact .section-heading h2 {
+    margin:0 !important;
+    color:#30246f !important;
+    font-size:12.5px !important;
+    font-weight:800 !important;
+    text-transform:uppercase !important;
+    text-align:left !important;
+}
+
+.report.tpl-compact .section-heading p {
+    display:none !important;
+}
+
+.report.tpl-compact .student-info {
+    grid-template-columns:repeat(4,1fr) !important;
+    gap:5px !important;
+    margin-bottom:6px !important;
+}
+
+.report.tpl-compact .student-info div {
+    padding:4px 7px !important;
+    background:#f7f7fb !important;
+    border:1px solid #cfcde6 !important;
+    border-radius:4px !important;
+    font-size:12px !important;
+    text-align:left !important;
+}
+
+.report.tpl-compact .student-info div strong {
+    display:block !important;
+    margin-bottom:1px !important;
+    color:#30246f !important;
+    font-size:8.5px !important;
+    letter-spacing:.4px !important;
+    text-transform:uppercase !important;
+}
+
+.report.tpl-compact .result-table {
+    margin-top:0 !important;
+}
+
+.report.tpl-compact .result-table th,
+.report.tpl-compact .result-table td {
+    padding:3px 5px !important;
+    font-size:11.5px !important;
+    border:1px solid #aaaaaa !important;
+}
+
+.report.tpl-compact .result-table thead th {
+    background:#3f308f !important;
+    color:#ffffff !important;
+    font-size:10px !important;
+}
+
+.report.tpl-compact .result-table tbody tr:nth-child(even) {
+    background:#f7f7fb !important;
+}
+
+.report.tpl-compact .result-table tfoot th {
+    background:#30246f !important;
+    color:#ffffff !important;
+}
+
+.report.tpl-compact .result-table .total-cell,
+.report.tpl-compact .result-table .grade-cell {
+    font-weight:800 !important;
+}
+
+.report.tpl-compact .summary {
+    display:flex !important;
+    align-items:center !important;
+    gap:6px !important;
+    margin-top:0 !important;
+    padding:6px 8px !important;
+    border:1px solid #bdbad9 !important;
+    border-left:5px solid #3f308f !important;
+    border-radius:6px !important;
+    background:#f7f7fb !important;
+}
+
+.report.tpl-compact .summary p {
+    flex:1 1 0 !important;
+    margin:0 !important;
+    padding:3px !important;
+    text-align:center !important;
+    font-size:14px !important;
+    font-weight:800 !important;
+}
+
+.report.tpl-compact .summary p strong {
+    display:block !important;
+    margin-bottom:1px !important;
+    color:#3f308f !important;
+    font-size:9px !important;
+    text-transform:uppercase !important;
+    letter-spacing:.3px !important;
+}
+
+.report.tpl-compact .summary .position-value {
+    font-size:14px !important;
+    color:#30246f !important;
+}
+
+.report.tpl-compact .summary p:nth-child(n+3) {
+    order:1 !important;
+}
+
+.report.tpl-compact .student-photo-box {
+    display:flex !important;
+    align-items:center !important;
+    margin:0 6px !important;
+}
+
+.report.tpl-compact .student-photo-box img {
+    width:56px !important;
+    height:70px !important;
+    object-fit:cover !important;
+    border:1px solid #3f308f !important;
+    border-radius:2px !important;
+}
+
+.report.tpl-compact .behavior-section {
+    margin-top:0 !important;
+}
+
+.report.tpl-compact .behavior-table th,
+.report.tpl-compact .behavior-table td {
+    padding:4px 3px !important;
+    border:1px solid #aaaaaa !important;
+}
+
+.report.tpl-compact .behavior-table th {
+    background:#eceaf7 !important;
+    color:#30246f !important;
+}
+
+.report.tpl-compact .behavior-table .trait-rating {
+    color:#3f308f !important;
+}
+
+.report.tpl-compact .comments {
+    margin-top:0 !important;
+}
+
+.report.tpl-compact .comment-grid {
+    display:grid !important;
+    grid-template-columns:1fr 1fr !important;
+    gap:8px !important;
+}
+
+.report.tpl-compact .comment-card {
+    min-width:0 !important;
+    padding:7px !important;
+    background:#fafafa !important;
+    border:1px solid #c8d4cc !important;
+    border-radius:5px !important;
+}
+
+.report.tpl-compact .comment-label {
+    margin:0 0 4px !important;
+    color:#21391e !important;
+    font-size:11.5px !important;
+    font-weight:700 !important;
+    text-align:left !important;
+}
+
+.report.tpl-compact .comment-box {
+    min-height:38px !important;
+    padding:6px 8px !important;
+    background:#ffffff !important;
+    border:1px solid #aaaaaa !important;
+    border-radius:4px !important;
+    font-size:12px !important;
+    text-align:left !important;
+}
+
+.report.tpl-compact .signature-line {
+    display:flex !important;
+    justify-content:space-between !important;
+    gap:20px !important;
+    margin-top:14px !important;
+    padding-top:3px !important;
+    border-top:1px solid #888888 !important;
+    color:#555555 !important;
+    font-size:9px !important;
+}
+
+.report.tpl-compact .comment-card {
+    min-width:0 !important;
+    padding:5px 7px !important;
+    background:#fafafa !important;
+    border:1px solid #cfcde6 !important;
+    border-radius:5px !important;
+}
+
+.report.tpl-compact .comment-label {
+    margin:0 0 3px !important;
+    color:#30246f !important;
+    font-size:10.5px !important;
+    font-weight:700 !important;
+    text-align:left !important;
+}
+
+.report.tpl-compact .comment-box {
+    min-height:30px !important;
+    padding:4px 7px !important;
+    background:#ffffff !important;
+    border:1px solid #aaaaaa !important;
+    border-radius:4px !important;
+    font-size:11.5px !important;
+    text-align:left !important;
+}
+
+.report.tpl-compact .signature-line {
+    display:flex !important;
+    justify-content:space-between !important;
+    gap:20px !important;
+    margin-top:10px !important;
+    padding-top:3px !important;
+    border-top:1px solid #888888 !important;
+    color:#555555 !important;
+    font-size:8.5px !important;
+}
+
+.report.tpl-compact .report-footer {
+    justify-content:flex-end !important;
+    gap:14px !important;
+    margin-top:10px !important;
+    padding-top:5px !important;
+    border-top:1px solid #c8d4cc !important;
+    color:#667068 !important;
+    font-size:9px !important;
+}
+
+
+/* Narrow phones */
+@media screen and (max-width: 600px) {
+    .report.tpl-side,
+    .report.tpl-band,
+    .report.tpl-sectioned,
+    .report.tpl-compact {
+        padding: 14px !important;
+    }
+    .report.tpl-side .student-info,
+    .report.tpl-band .student-info,
+    .report.tpl-compact .student-info {
+        grid-template-columns: 1fr 1fr !important;
+    }
+    .report.tpl-sectioned .student-info {
+        grid-template-columns: 1fr !important;
+    }
+    .report.tpl-side .student-info div:nth-child(2),
+    .report.tpl-band .student-info div:nth-child(2) {
+        grid-column: span 2 !important;
+    }
+    .report.tpl-side .school-header h1,
+    .report.tpl-band .school-header h1,
+    .report.tpl-sectioned .school-header h1,
+    .report.tpl-compact .school-header h1 {
+        font-size: 17px !important;
+    }
+    .report.tpl-compact .school-header h1,
+    .report.tpl-compact .school-header p {
+        padding: 0 !important;
+    }
+    .report.tpl-compact .school-logo-container {
+        position: static !important;
+        margin: 0 auto 4px !important;
+    }
+    .report.tpl-side .summary,
+    .report.tpl-band .summary,
+    .report.tpl-sectioned .summary,
+    .report.tpl-compact .summary {
+        flex-wrap: wrap !important;
+    }
+    .report.tpl-side .summary p,
+    .report.tpl-band .summary p,
+    .report.tpl-sectioned .summary p,
+    .report.tpl-compact .summary p {
+        flex: 1 1 45% !important;
+    }
+    .report.tpl-side .comment-grid,
+    .report.tpl-sectioned .comment-grid,
+    .report.tpl-compact .comment-grid {
+        grid-template-columns: 1fr !important;
+    }
+    .report.tpl-band .comment-card {
+        grid-template-columns: 1fr !important;
+    }
+    .report.tpl-band .comment-label,
+    .report.tpl-band .comment-box,
+    .report.tpl-band .signature-line {
+        grid-column: 1 !important;
+        grid-row: auto !important;
+    }
+}
+
+/* =========================================================
+   REPORT OUTLOOK PICKER (School Information section)
+   ========================================================= */
+
+.outlook-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+    margin-top: 8px;
+}
+
+.outlook-card {
+    display: block;
+    position: relative;
+    padding: 10px 12px;
+    border: 2px solid #cfd9d2;
+    border-radius: 10px;
+    background: #ffffff;
+    cursor: pointer;
+    text-align: left;
+}
+
+.outlook-card input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.outlook-card.selected {
+    border-color: #315c38;
+    background: #eef6ec;
+}
+
+.outlook-card strong {
+    display: block;
+    color: #21391e;
+    font-size: 15px;
+}
+
+.outlook-card small {
+    display: block;
+    margin-top: 2px;
+    color: #68747e;
+    font-size: 12px;
+    line-height: 1.3;
+}
+
+.outlook-swatches {
+    display: flex;
+    gap: 5px;
+    margin-top: 7px;
+}
+
+.outlook-swatches i {
+    display: block;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    border: 1px solid rgba(0, 0, 0, .18);
+}
+
+#reportOutlookPreview {
+    position: relative;
+    margin-top: 12px;
+    border: 1px solid #cfd9d2;
+    border-radius: 8px;
+    overflow: hidden;
+    background: #eef2f5;
+}
+
+#reportOutlookPreview iframe {
+    display: block;
+    border: 0;
+    width: 794px;
+    transform-origin: top left;
+    background: #ffffff;
+}
+
+@media screen and (max-width: 400px) {
+    .outlook-grid {
+        grid-template-columns: 1fr;
     }
 }

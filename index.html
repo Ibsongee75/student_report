@@ -19,7 +19,7 @@
 
     <link
         rel="stylesheet"
-        href="style.css"
+        href="style.css?v=3"
     >
 
 
@@ -1948,6 +1948,25 @@ body.srg-staff-mode:not(.srg-role-subject) #srg-step-1b {
                 </button>
 
 
+                <label style="display:block; margin-top:20px;">
+                    <strong>Report Outlook</strong>
+                </label>
+
+                <p style="margin:4px 0 0;">
+                    Choose how your generated student reports look.
+                    The preview below uses sample data.
+                </p>
+
+                <div id="reportOutlookPicker"></div>
+
+                <p
+                    id="reportOutlookStatus"
+                    style="margin-top:8px;"
+                ></p>
+
+                <div id="reportOutlookPreview"></div>
+
+
                 <button
                     type="button"
                     id="saveSchoolInformation"
@@ -2543,7 +2562,7 @@ body.srg-staff-mode:not(.srg-role-subject) #srg-step-1b {
 
   <script src="native-app.js?v=2"></script>
   <script src="drive-backup.js?v=2"></script>
-    <script src="script.js?v=36"></script>
+    <script src="script.js?v=38"></script>
   <script src="fees.js?v=3"></script>
   
 
