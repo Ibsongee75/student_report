@@ -17975,17 +17975,14 @@ function fitReportsToSinglePage() {
 
         const naturalHeightPx = inner.scrollHeight;
 
-        if (naturalHeightPx > maxInnerHeightPx && naturalHeightPx > 0) {
-            const scale = maxInnerHeightPx / naturalHeightPx;
+                if (naturalHeightPx > 0) {
+            /* Scale down if too tall, scale up (max 1.35x) if too short. */
+            const scale = Math.min(maxInnerHeightPx / naturalHeightPx, 1.35);
             inner.style.transformOrigin = "top left";
             inner.style.transform = "scale(" + scale + ")";
-            /* Widen before scaling so the shrink is vertical-only visually,
-               keeping the report's full page width after the transform. */
             inner.style.width = (100 / scale) + "%";
             report.style.setProperty("height", PAGE_CONTENT_HEIGHT_MM + "mm", "important");
-        } else {
-            report.style.setProperty("height", "auto", "important");
-        }
+                }
     });
 
     /* Hand back to the existing print styling. */
