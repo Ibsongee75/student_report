@@ -2204,3 +2204,88 @@ select {
         grid-template-columns: 1fr;
     }
 }
+
+
+/* =========================================================
+   REMARK COLUMN + GRADING KEY
+   The result table has a Remark column after Grade. The key under
+   the Performance Summary shows which marks earn each grade, and
+   highlights the student's own overall grade.
+   ========================================================= */
+
+.result-table .remark-cell {
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.2;
+}
+
+.report .grade-key {
+    margin-top: 8px;
+    padding: 6px 8px 8px;
+    border: 1px solid #9daaa0;
+    border-radius: 6px;
+    background: #f6f8f6;
+    break-inside: avoid;
+    page-break-inside: avoid;
+}
+
+.report .grade-key-title {
+    margin-bottom: 5px;
+    color: #3f308f;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: .4px;
+    text-transform: uppercase;
+    text-align: center;
+}
+
+.report .grade-key-grid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 5px;
+}
+
+.report .grade-key-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 4px 2px;
+    border: 1px solid #c3ccc6;
+    border-radius: 4px;
+    background: #ffffff;
+    color: #26323a;
+    line-height: 1.2;
+    text-align: center;
+}
+
+.report .grade-key-item strong {
+    font-size: 14px;
+    font-weight: 800;
+}
+
+.report .grade-key-item span {
+    font-size: 10px;
+    font-weight: 700;
+}
+
+.report .grade-key-item em {
+    font-size: 10px;
+    font-style: normal;
+    opacity: .85;
+}
+
+/* The student's own overall grade is highlighted */
+.report .grade-key-item.is-current {
+    background: #3f308f;
+    border-color: #3f308f;
+    color: #ffffff;
+    box-shadow: 0 0 0 1px #3f308f;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+}
+
+@media (max-width: 600px) {
+    .report .grade-key-grid {
+        grid-template-columns: repeat(3, 1fr);
+    }
+}

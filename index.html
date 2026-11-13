@@ -19,7 +19,7 @@
 
     <link
         rel="stylesheet"
-        href="style.css?v=3"
+        href="style.css?v=4"
     >
 
 
@@ -1776,11 +1776,12 @@ body.srg-staff-mode:not(.srg-role-subject) #srg-step-1b {
 
                 <ul>
 
-                    <li> 
+                    <li>
                         Unlimited students
                     </li>
-                    <li> Manage your school Digitally
-                    </li>
+                  <li>
+                        Digital school management 
+                  </li>
 
                     <li>
                         Everything in Premium
@@ -2002,7 +2003,9 @@ body.srg-staff-mode:not(.srg-role-subject) #srg-step-1b {
                     Add each one once here — everyone then picks it from a
                     dropdown everywhere else, so typos and inconsistent
                     spelling/capitalization can't split one class's data
-                    into two.
+                    into two. Each class also has a level (Pre Basic, Basic or
+                    Post Basic) so its templates only list the subjects taught
+                    at that level.
                 </p>
 
                 <label for="newClassNameInput" style="display:block; margin-top:10px;">
@@ -2014,6 +2017,19 @@ body.srg-staff-mode:not(.srg-role-subject) #srg-step-1b {
                     id="newClassNameInput"
                     placeholder="e.g. SS2 Science 1"
                 >
+
+                <div id="classLevelRow" style="margin-top:10px;">
+                    <label for="newClassLevelSelect" style="display:block;">
+                        <strong>Level</strong>
+                    </label>
+
+                    <select id="newClassLevelSelect">
+                        <option value="">-- Select Level --</option>
+                        <option value="Pre Basic">Pre Basic</option>
+                        <option value="Basic">Basic</option>
+                        <option value="Post Basic">Post Basic</option>
+                    </select>
+                </div>
 
                 <button id="addClassButton" style="margin-top:10px;">
                     Add Class
@@ -2244,32 +2260,25 @@ body.srg-staff-mode:not(.srg-role-subject) #srg-step-1b {
 
             <section class="card" id="studentPhotosSection">
 
-                <h2>📷 Student Pictures (optional)</h2>
+                <h2>📷 Student Passport Photos (optional)</h2>
 
-                <p>
-                    Add passport pictures to the report sheets. Name each picture file
-                    with the student's <strong>admission number</strong> (for example
-                    <em>2024-015.jpg</em>) or <strong>full name</strong> (for example
-                    <em>Ada Obi.jpg</em>). You can choose many files at once.
+                <p style="margin:0 0 10px; font-size:0.9em;">
+                    Add an optional passport photograph for each student in the class
+                    chosen in Step 1A. Use a clear JPG, PNG or WebP image.
                 </p>
 
                 <p>
                     <small>
-                        Pictures are saved to <strong>your school account</strong>, so they
+                        Photos are saved to <strong>your school account</strong>, so they
                         also show in the Android app and on any device you sign in on.
                         They are not published online. Only the school owner and the form
-                        master can add or delete pictures.
+                        master can add, change or remove photos.
                     </small>
                 </p>
 
-                <input type="file" id="studentPhotoInput" accept="image/*" multiple>
+                <div id="studentPhotoManager"></div>
 
-                <div style="margin-top:12px;">
-                    <button type="button" id="saveStudentPhotosButton">Save Pictures</button>
-                    <button type="button" id="clearStudentPhotosButton">Delete All Pictures</button>
-                </div>
-
-                <p id="studentPhotoStatus" style="font-weight:600;"></p>
+                <p id="studentPhotoStatus" style="margin:10px 0 0; font-weight:600;"></p>
 
             </section>
 
@@ -2564,7 +2573,7 @@ body.srg-staff-mode:not(.srg-role-subject) #srg-step-1b {
 
   <script src="native-app.js?v=2"></script>
   <script src="drive-backup.js?v=2"></script>
-    <script src="script.js?v=38"></script>
+    <script src="script.js?v=39"></script>
   <script src="fees.js?v=3"></script>
   
 
