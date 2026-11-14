@@ -17931,8 +17931,8 @@ let reportPrintStyle = null;
    ========================================================= */
 
 const MM_TO_PX = 96 / 25.4;          // CSS-spec fixed conversion (96px = 1in = 25.4mm)
-const PAGE_CONTENT_HEIGHT_MM = 303;  // A4 height (297mm) minus the larger 8mm top+bottom @page margin
-const REPORT_WIDTH_MM = 217;         // A4 width (210mm) minus the larger 8mm left+right @page margin
+const PAGE_CONTENT_HEIGHT_MM = 281;  // A4 height (297mm) minus the larger 8mm top+bottom @page margin
+const REPORT_WIDTH_MM = 194;         // A4 width (210mm) minus the larger 8mm left+right @page margin
 const REPORT_PAD_TOP_MM = 4;
 const REPORT_PAD_BOTTOM_MM = 2;
 
@@ -17975,14 +17975,33 @@ function fitReportsToSinglePage() {
 
         const naturalHeightPx = inner.scrollHeight;
 
-                if (naturalHeightPx > 0) {
-            /* Scale down if too tall, scale up (max 1.35x) if too short. */
-            const scale = Math.min(maxInnerHeightPx / naturalHeightPx, 1.35);
+                       if (naturalHeightPx > 0) {
+            const MAX_SCALE = 1.6;
+            let scale = Math.min(maxInnerHeightPx / naturalHeightPx, MAX_SCALE);
             inner.style.transformOrigin = "top left";
-            inner.style.transform = "scale(" + scale + ")";
-            inner.style.width = (100 / scale) + "%";
+
+            for (let i = 0; i < 6; i++) {
+                inner.style.width = (100 / scale) + "%";
+                inner.style.transform = "scale(" + scale + ")";
+                const visualHeight = inner.scrollHeight * scale;
+                const ratio = maxInnerHeightPx / visualHeight;
+
+                if (ratio >= 0.98 && ratio <= 1.02) break;   /* fills the page */
+                if (ratio > 1 && scale >= MAX_SCALE) break;  /* already at the cap */
+
+                scale = Math.min(scale * ratio, MAX_SCALE);
+            }
+
+            /* Safety: never let it overflow onto a second page. */
+            const finalHeight = inner.scrollHeight * scale;
+            if (finalHeight > maxInnerHeightPx) {
+                scale = scale * (maxInnerHeightPx / finalHeight) * 0.98;
+                inner.style.width = (100 / scale) + "%";
+                inner.style.transform = "scale(" + scale + ")";
+            }
+
             report.style.setProperty("height", PAGE_CONTENT_HEIGHT_MM + "mm", "important");
-                }
+   } 
     });
 
     /* Hand back to the existing print styling. */
