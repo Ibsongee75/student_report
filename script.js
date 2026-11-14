@@ -1068,6 +1068,22 @@ function ensureXLSX() {
 
 }
 
+
+function printReportsPage() {
+    const phoneBrowser = !!(window.matchMedia &&
+        (window.matchMedia("(pointer: coarse)").matches || window.innerWidth <= 820));
+
+    if (phoneBrowser) {
+        prepareReportsForPrintInApp().catch(function (error) {
+            console.error("Print preparation error:", error);
+        }).then(function () {
+            setTimeout(function () { window.print(); }, 250);
+        });
+        return;
+    }
+
+    window.print();
+}
 /* ---------------------------------------------------------
    showManualDownloadLink
    Chrome treats a download started several seconds after the tap
@@ -6717,7 +6733,7 @@ function attachApplicationEvents() {
     printReportButton.addEventListener(
         "click",
         function () {
-            window.print();
+            printReportsPage();
         }
     );
 }
@@ -17903,12 +17919,11 @@ function escapeHTML(
 }
 
 
-
 /* =========================================================
    REPORT-ONLY PRINT / SAVE-TO-PDF PROTECTION
 
-   Prints/saves ONLY the generated reports and forces each
-   student report to occupy its own PDF/print page.
+   A dedicated print layer is used so the application controls,
+   including Step 3, can NEVER become part of the first report.
    ========================================================= */
 
 let reportPrintLayer = null;
@@ -17922,51 +17937,101 @@ let reportPrintStyle = null;
    page area and scaled down (uniformly, so nothing looks
    stretched) just enough to fit.
 
-   This site has two @page margin rules in play (5mm from the
-   injected print style below, 8mm from style.css) plus a
-   print padding of 5mm vs. an on-screen padding of 10mm, so
-   the more conservative (larger margin / larger padding,
-   smaller usable area) numbers are used here on purpose: that
-   guarantees no overflow no matter which existing rule wins.
+   Same sizing as script.js: the stylesheet has an 8mm @page
+   margin and the injected print style a 5mm one, so the more
+   conservative numbers are used on purpose.
    ========================================================= */
 
 const MM_TO_PX = 96 / 25.4;          // CSS-spec fixed conversion (96px = 1in = 25.4mm)
-const PAGE_CONTENT_HEIGHT_MM = 281;  // A4 height (297mm) minus the larger 8mm top+bottom @page margin
-const REPORT_WIDTH_MM = 194;         // A4 width (210mm) minus the larger 8mm left+right @page margin
+const PAGE_CONTENT_HEIGHT_MM = 303;  // A4 height (297mm) minus the larger 8mm top+bottom @page margin
+const REPORT_WIDTH_MM = 217;         // A4 width (210mm) minus the larger 8mm left+right @page margin
 const REPORT_PAD_TOP_MM = 4;
 const REPORT_PAD_BOTTOM_MM = 2;
 
-function fitReportsToSinglePage() {
-    if (!reportPrintLayer) return;
+/* Android app only. PrintPlugin.java now prints on a full A4 sheet with no
+   margins, so the report gets the whole 210 x 297mm page (with its own inner
+   padding) and is scaled to FILL it, in both directions: shrunk when too
+   tall, enlarged when too short. The website keeps the script.js sizing. */
+const APP_PAGE_WIDTH_MM = 210;
+const APP_PAGE_HEIGHT_MM = 296;      // 1mm under 297mm so the page never spills onto a blank 2nd page
+const APP_PAD_TOP_MM = 5;
+const APP_PAD_SIDE_MM = 6;
+const APP_PAD_BOTTOM_MM = 2;
+const APP_MAX_GROW = 3.0;            // never enlarge more than this, so a tiny report is not blown up absurdly
 
-    const reports = reportPrintLayer.querySelectorAll(".report");
+/* Android app only. The Android print engine lays the page out at a width
+   that is not the same as the A4 width the report was measured at, so a
+   report built from mm and px sizes came out smaller than the page. Putting
+   the finished report inside an SVG with a fixed viewBox makes the engine
+   scale the WHOLE report evenly to the page width, so it fills the page
+   whatever width the engine uses. Text stays sharp (it is not an image). */
+function wrapReportAsSvgPage(report, pageWidthMm, pageHeightMm) {
+    const doc = report.ownerDocument;
+    const NS = "http://www.w3.org/2000/svg";
+    const widthPx = pageWidthMm * MM_TO_PX;
+    const heightPx = pageHeightMm * MM_TO_PX;
+
+    /* The svg page break replaces the report's own page break. */
+    report.style.setProperty("break-after", "auto", "important");
+    report.style.setProperty("page-break-after", "auto", "important");
+    report.style.setProperty("break-before", "auto", "important");
+    report.style.setProperty("page-break-before", "auto", "important");
+    report.style.setProperty("margin", "0", "important");
+
+    const svg = doc.createElementNS(NS, "svg");
+    svg.setAttribute("class", "report-svg-page");
+    svg.setAttribute("xmlns", NS);
+    svg.setAttribute("viewBox", "0 0 " + widthPx + " " + heightPx);
+    svg.setAttribute("preserveAspectRatio", "xMinYMin meet");
+
+    const box = doc.createElementNS(NS, "foreignObject");
+    box.setAttribute("x", "0");
+    box.setAttribute("y", "0");
+    box.setAttribute("width", String(widthPx));
+    box.setAttribute("height", String(heightPx));
+
+    report.parentNode.insertBefore(svg, report);
+    svg.appendChild(box);
+    box.appendChild(report);
+}
+
+function fitReportsToSinglePage(layer, fillPage) {
+    layer = layer || reportPrintLayer;
+    if (!layer) return;
+
+    const reports = layer.querySelectorAll(".report");
     if (!reports.length) return;
 
-    const maxInnerHeightPx =
-        (PAGE_CONTENT_HEIGHT_MM - REPORT_PAD_TOP_MM - REPORT_PAD_BOTTOM_MM) * MM_TO_PX;
+    const pageWidthMm  = fillPage ? APP_PAGE_WIDTH_MM  : REPORT_WIDTH_MM;
+    const pageHeightMm = fillPage ? APP_PAGE_HEIGHT_MM : PAGE_CONTENT_HEIGHT_MM;
+    const padTopMm     = fillPage ? APP_PAD_TOP_MM     : REPORT_PAD_TOP_MM;
+    const padSideMm    = fillPage ? APP_PAD_SIDE_MM    : REPORT_PAD_TOP_MM;
+    const padBottomMm  = fillPage ? APP_PAD_BOTTOM_MM  : REPORT_PAD_BOTTOM_MM;
+
+    const maxInnerHeightPx = (pageHeightMm - padTopMm - padBottomMm) * MM_TO_PX;
 
     /* Lay the layer out for measurement without letting it flash on screen. */
-    reportPrintLayer.style.display = "block";
-    reportPrintLayer.style.visibility = "hidden";
-    reportPrintLayer.style.position = "fixed";
-    reportPrintLayer.style.top = "0";
-    reportPrintLayer.style.left = "-99999px";
+    layer.style.display = "block";
+    layer.style.visibility = "hidden";
+    layer.style.position = "fixed";
+    layer.style.top = "0";
+    layer.style.left = "-99999px";
 
     reports.forEach(function (report) {
         /* Match the exact box the printed page will give this report. */
-        report.style.setProperty("width", REPORT_WIDTH_MM + "mm", "important");
+        report.style.setProperty("width", pageWidthMm + "mm", "important");
         report.style.setProperty("max-width", "none", "important");
         report.style.setProperty("min-height", "0", "important");
         report.style.setProperty(
             "padding",
-            REPORT_PAD_TOP_MM + "mm " + REPORT_PAD_TOP_MM + "mm " + REPORT_PAD_BOTTOM_MM + "mm",
+            padTopMm + "mm " + padSideMm + "mm " + padBottomMm + "mm",
             "important"
         );
         report.style.setProperty("border", "0", "important");
         report.style.setProperty("overflow", "hidden", "important");
 
         /* Move the report's existing content into a scalable wrapper. */
-        const inner = document.createElement("div");
+        const inner = layer.ownerDocument.createElement("div");
         inner.className = "report-scale-wrap";
         while (report.firstChild) {
             inner.appendChild(report.firstChild);
@@ -17975,47 +18040,61 @@ function fitReportsToSinglePage() {
 
         const naturalHeightPx = inner.scrollHeight;
 
-                       if (naturalHeightPx > 0) {
-            const MAX_SCALE = 1.6;
-            let scale = Math.min(maxInnerHeightPx / naturalHeightPx, MAX_SCALE);
+        if (fillPage && naturalHeightPx > 0) {
+            /* Fill the page: scale up OR down. Changing the width changes how
+               the text wraps (and so the height), so the old "re-measure and
+               repeat" loop could bounce between two values and stop short,
+               leaving the bottom of the page empty. The printed height
+               (layout height x scale) only ever grows as the scale grows, so
+               a binary search always lands on the biggest scale that fits. */
             inner.style.transformOrigin = "top left";
 
-            for (let i = 0; i < 6; i++) {
-                inner.style.width = (100 / scale) + "%";
-                inner.style.transform = "scale(" + scale + ")";
-                const visualHeight = inner.scrollHeight * scale;
-                const ratio = maxInnerHeightPx / visualHeight;
-
-                if (ratio >= 0.98 && ratio <= 1.02) break;   /* fills the page */
-                if (ratio > 1 && scale >= MAX_SCALE) break;  /* already at the cap */
-
-                scale = Math.min(scale * ratio, MAX_SCALE);
+            function printedHeightAt(candidate) {
+                inner.style.width = (100 / candidate) + "%";
+                inner.style.transform = "scale(" + candidate + ")";
+                return inner.scrollHeight * candidate;
             }
 
-            /* Safety: never let it overflow onto a second page. */
-            const finalHeight = inner.scrollHeight * scale;
-            if (finalHeight > maxInnerHeightPx) {
-                scale = scale * (maxInnerHeightPx / finalHeight) * 0.98;
-                inner.style.width = (100 / scale) + "%";
-                inner.style.transform = "scale(" + scale + ")";
+            let low = 0.05;                 // always fits
+            let high = APP_MAX_GROW;
+
+            if (printedHeightAt(high) <= maxInnerHeightPx) {
+                low = high;                 // even the biggest allowed scale fits
+            } else {
+                for (let pass = 0; pass < 14; pass++) {
+                    const middle = (low + high) / 2;
+                    if (printedHeightAt(middle) <= maxInnerHeightPx) low = middle; else high = middle;
+                }
             }
 
-            report.style.setProperty("height", PAGE_CONTENT_HEIGHT_MM + "mm", "important");
-   } 
+            printedHeightAt(low);
+            report.style.setProperty("height", pageHeightMm + "mm", "important");
+            wrapReportAsSvgPage(report, pageWidthMm, pageHeightMm);
+        } else if (naturalHeightPx > maxInnerHeightPx && naturalHeightPx > 0) {
+            const scale = maxInnerHeightPx / naturalHeightPx;
+            inner.style.transformOrigin = "top left";
+            inner.style.transform = "scale(" + scale + ")";
+            /* Widen before scaling so the shrink is vertical-only visually,
+               keeping the report's full page width after the transform. */
+            inner.style.width = (100 / scale) + "%";
+            report.style.setProperty("height", pageHeightMm + "mm", "important");
+        } else {
+            report.style.setProperty("height", "auto", "important");
+        }
     });
 
     /* Hand back to the existing print styling. */
-    reportPrintLayer.style.display = "";
-    reportPrintLayer.style.visibility = "";
-    reportPrintLayer.style.position = "";
-    reportPrintLayer.style.top = "";
-    reportPrintLayer.style.left = "";
+    layer.style.display = "";
+    layer.style.visibility = "";
+    layer.style.position = "";
+    layer.style.top = "";
+    layer.style.left = "";
 }
 
-function prepareReportsForPrint() {
+function buildReportPrintLayer() {
     if (!reportContainer) return;
 
-    /* Prevent duplicate print layers/styles on mobile browsers. */
+    /* Remove an old layer if a mobile browser fires beforeprint twice. */
     if (reportPrintLayer) {
         reportPrintLayer.remove();
         reportPrintLayer = null;
@@ -18026,32 +18105,37 @@ function prepareReportsForPrint() {
         reportPrintStyle = null;
     }
 
-    /* Copy the generated reports into a dedicated print-only layer. */
     reportPrintLayer = document.createElement("div");
     reportPrintLayer.id = "reportPrintLayer";
     reportPrintLayer.innerHTML = reportContainer.innerHTML;
+
+    /* Phones/WebViews "boost" text in wide blocks (text autosizing), which
+       makes the on-screen measurement taller than the real printed page and
+       shrinks the report too much. Switch that off for the print layer. */
+    reportPrintLayer.style.setProperty("-webkit-text-size-adjust", "100%", "important");
+    reportPrintLayer.style.setProperty("text-size-adjust", "100%", "important");
+    reportPrintLayer.querySelectorAll("*").forEach(function (node) {
+        node.style.setProperty("-webkit-text-size-adjust", "100%", "important");
+        node.style.setProperty("text-size-adjust", "100%", "important");
+    });
+
     document.body.appendChild(reportPrintLayer);
 
-    fitReportsToSinglePage();
-
-    /*
-       The print rules are injected here so this works even if the
-       main stylesheet does not already contain the required rules.
-       Each .report starts on a fresh A4 page and cannot be split
-       between two pages where the browser supports these rules.
-    */
+    /* Same print rules as script.js, injected so printing works even if the
+       main stylesheet lacks them. Each .report starts on a fresh A4 page
+       and cannot be split between two pages. */
     reportPrintStyle = document.createElement("style");
     reportPrintStyle.id = "reportPrintStyle";
     reportPrintStyle.textContent = `
         @page {
             size: A4 portrait;
-            margin: 5mm;
+            margin: ${(isNativeApp() || printFillMode) ? "0" : "5mm"};
         }
 
         @media print {
             html,
             body {
-                width: 210mm !important;
+                width: ${(isNativeApp() || printFillMode) ? "100%" : "210mm"} !important;
                 min-width: 0 !important;
                 margin: 0 !important;
                 padding: 0 !important;
@@ -18088,14 +18172,172 @@ function prepareReportsForPrint() {
                 break-after: auto;
                 page-break-after: auto;
             }
+
+            #reportPrintLayer svg.report-svg-page {
+                display: block !important;
+                width: 100% !important;
+                height: auto !important;
+                margin: 0 !important;
+                overflow: hidden !important;
+                break-inside: avoid;
+                page-break-inside: avoid;
+                break-after: page;
+                page-break-after: always;
+            }
+
+            #reportPrintLayer svg.report-svg-page:last-child {
+                break-after: auto;
+                page-break-after: auto;
+            }
         }
     `;
-
     document.head.appendChild(reportPrintStyle);
+
+}
+
+/* Android app: the app print flow below builds and fits the print layer
+   itself. The WebView can ALSO fire "beforeprint" when the print job starts,
+   and the website handler would then throw that layer away and rebuild it
+   with the website sizing (shrink only, never enlarge) - which is why the
+   app print kept coming out the same whatever was changed. This flag makes
+   the website handler leave the app's layer alone. */
+let appPrintLayerReady = false;
+let printFillMode = false;          // true while the fill-the-page print flow is in use (app and mobile website)
+let appPrintLayerBuiltAt = 0;
+let appPrintLayerSignature = 0;
+
+/* True while the fitted print page built by the fill flow should be kept.
+   In the app it is kept until the next Print tap. On the mobile website it is
+   kept for 10 minutes and only while the reports on screen are unchanged, so
+   a later Print from the browser menu never prints an out-of-date page. */
+function appPrintLayerStillValid() {
+    if (!appPrintLayerReady || !reportPrintLayer) return false;
+    if (isNativeApp()) return true;
+    return (Date.now() - appPrintLayerBuiltAt < 10 * 60 * 1000) &&
+        !!reportContainer &&
+        reportContainer.innerHTML.length === appPrintLayerSignature;
+}
+
+function prepareReportsForPrint() {
+    if (appPrintLayerStillValid()) return;
+
+    if (!reportContainer) return;
+
+    printFillMode = false;
+    buildReportPrintLayer();
+    fitReportsToSinglePage(reportPrintLayer);
+
+    document.documentElement.classList.add("printing-reports");
+}
+
+/* ---------------------------------------------------------
+   Android app: measure the reports in a hidden, desktop-width frame.
+   The stylesheet has phone-only rules (max-width 700px / 400px) that
+   re-flow the report (smaller fonts, stacked columns). Measured on the
+   phone screen the report looks taller than it prints, so it is shrunk
+   too much and the page is left part-empty. A wide frame gets the same
+   layout the printed page (and a desktop browser) uses.
+   --------------------------------------------------------- */
+
+function fitReportsInDesktopFrame() {
+
+    return new Promise(function (resolve, reject) {
+
+        const layer = reportPrintLayer;
+        if (!layer) { resolve(); return; }
+
+        const frame = document.createElement("iframe");
+        frame.setAttribute("aria-hidden", "true");
+        frame.style.cssText =
+            "position:fixed;left:-99999px;top:0;width:1200px;height:1600px;" +
+            "border:0;opacity:0;pointer-events:none;";
+
+        let finished = false;
+        let timer = null;
+
+        function finish(error) {
+            if (finished) return;
+            finished = true;
+            clearTimeout(timer);
+            if (frame.parentNode) frame.parentNode.removeChild(frame);
+            if (error) reject(error); else resolve();
+        }
+
+        timer = setTimeout(function () {
+            finish(new Error("Print measuring timed out"));
+        }, 6000);
+
+        frame.onload = function () {
+            try {
+                const frameLayer = frame.contentDocument.getElementById("reportPrintLayer");
+                fitReportsToSinglePage(frameLayer, true);
+                layer.innerHTML = frameLayer.innerHTML;
+                finish();
+            } catch (error) {
+                finish(error);
+            }
+        };
+
+        const styles = Array.prototype.filter.call(
+            document.querySelectorAll('link[rel="stylesheet"], style'),
+            function (node) {
+                return !(node.href && /fonts\.(googleapis|gstatic)\.com/.test(node.href));
+            }
+        ).map(function (node) { return node.outerHTML; }).join("\n");
+
+        frame.srcdoc =
+            '<!DOCTYPE html><html><head><meta charset="utf-8">' +
+            '<base href="' + document.baseURI + '">' + styles + '</head><body>' +
+            '<div id="reportPrintLayer" style="display:block">' + layer.innerHTML + '</div>' +
+            '</body></html>';
+
+        document.body.appendChild(frame);
+
+    });
+
+}
+
+/* Waits (up to a few seconds) until the images in the print layer, such as
+   the school logo link from Storage, have loaded. */
+function waitForPrintImages(layer, maxMs) {
+    const images = Array.prototype.slice.call(layer.querySelectorAll("img"));
+
+    return Promise.race([
+        Promise.all(images.map(function (img) {
+            if (img.complete) return null;
+            return new Promise(function (done) {
+                img.addEventListener("load", done, { once: true });
+                img.addEventListener("error", done, { once: true });
+            });
+        })),
+        new Promise(function (done) { setTimeout(done, maxMs); })
+    ]);
+}
+
+async function prepareReportsForPrintInApp() {
+    if (!reportContainer) return;
+
+    printFillMode = true;
+    buildReportPrintLayer();
+
+    if (reportPrintLayer) await waitForPrintImages(reportPrintLayer, 4000);
+
+    try {
+        await fitReportsInDesktopFrame();
+    } catch (error) {
+        console.error("Desktop-width fit failed, using on-screen fit:", error);
+        fitReportsToSinglePage(reportPrintLayer, true);
+    }
+
+    appPrintLayerReady = true;
+    appPrintLayerBuiltAt = Date.now();
+    appPrintLayerSignature = reportContainer.innerHTML.length;
     document.documentElement.classList.add("printing-reports");
 }
 
 function restoreReportsAfterPrint() {
+    appPrintLayerReady = false;
+    printFillMode = false;
     document.documentElement.classList.remove("printing-reports");
 
     if (reportPrintLayer) {
@@ -18109,16 +18351,37 @@ function restoreReportsAfterPrint() {
     }
 }
 
+document.documentElement.classList.remove("printing-reports");
+
+/* Android app: the PDF is written AFTER the preview, when the person taps
+   Save in the print dialog. The old clean-up (on focus / visibilitychange /
+   afterprint) removed the app's fitted print page before that final write,
+   so the saved PDF came out small again even though the preview was right.
+   In the app the fitted page now stays in place (it is invisible on screen
+   and is rebuilt fresh the next time Print is tapped); only the website
+   cleans up on these events. */
+function cleanUpAfterPrintEvent() {
+    if (appPrintLayerStillValid()) return;
+    restoreReportsAfterPrint();
+}
+
 window.addEventListener("beforeprint", prepareReportsForPrint);
-window.addEventListener("afterprint", restoreReportsAfterPrint);
+window.addEventListener("afterprint", cleanUpAfterPrintEvent);
 
 /* Mobile browsers are not always consistent with afterprint. */
 window.addEventListener("focus", function () {
     if (document.documentElement.classList.contains("printing-reports")) {
-        setTimeout(restoreReportsAfterPrint, 500);
+        setTimeout(cleanUpAfterPrintEvent, 500);
     }
 });
 
+/* Clean up when the page becomes visible again after the print dialog. */
+document.addEventListener("visibilitychange", function () {
+    if (!document.hidden &&
+        document.documentElement.classList.contains("printing-reports")) {
+        setTimeout(cleanUpAfterPrintEvent, 500);
+    }
+});
 
 /* =========================================================
    END OF SCRIPT
