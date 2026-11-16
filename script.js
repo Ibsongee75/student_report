@@ -3357,6 +3357,27 @@ function applySchoolProfile(row) {
 
 }
 
+/* The class list and class dropdown are drawn BEFORE the school profile is
+   loaded at login. When the saved class levels arrive afterwards, draw them
+   again so each class shows its level instead of "Level not set". */
+function refreshClassLevelViews() {
+
+    try {
+
+        renderClassList();
+
+        if (Array.isArray(schoolClasses) && schoolClasses.length > 0) {
+            populateClassNameSelect();
+        }
+
+    } catch (error) {
+
+        console.error("Could not refresh class levels:", error);
+
+    }
+
+}
+
 function resetSchoolProfileState() {
 
     srgLockAllSections();
@@ -3419,6 +3440,8 @@ async function loadSchoolProfile(authUserId) {
 
         if (data) {
 
+            const classLevelsBefore = JSON.stringify(reportSettings.classLevels || {});
+
             applySchoolProfile(data);
 
             /* Older logos stored inside the database are moved to Storage. */
@@ -3455,6 +3478,10 @@ async function loadSchoolProfile(authUserId) {
             loadSchoolInformation();
 
             if (!staffContext) renderSubjectList();
+
+            if (JSON.stringify(reportSettings.classLevels || {}) !== classLevelsBefore) {
+                refreshClassLevelViews();
+            }
 
             if (uploadSubjects || migratedLogo) await syncSchoolProfile(true);
 
