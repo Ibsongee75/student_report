@@ -794,6 +794,104 @@ function levelsInUse() {
     );
 }
 
+/* =========================================================
+   FORM MASTER: SCORE ENTRY FOR EVERY SUBJECT OF A PRE BASIC / BASIC CLASS
+
+   A form master (assigned in Staff Access) of a Pre Basic or Basic
+   class sees the Step 1B subject template section and may download /
+   upload the template of EVERY subject offered at that class's level,
+   not only subjects assigned to them. They still cannot add, rename or
+   remove subjects: the School Subjects section stays owner-only.
+   The database must also allow it (see form_master_score_entry.sql).
+   ========================================================= */
+
+const FORM_MASTER_SCORE_LEVELS = ["Pre Basic", "Basic"];
+const SRG_FORCED_ATTR = "data-srg-forced-display";
+
+/* The school's full subject list as saved by the owner (staff copy,
+   read only). Staff's own schoolSubjects holds just their class subjects. */
+let staffServerSubjects = [];
+
+function staffCanEnterAllSubjects(className) {
+
+    if (typeof staffContext === "undefined" || !staffContext || !className) return false;
+
+    const wanted = normalizeClassKey(className);
+
+    if (FORM_MASTER_SCORE_LEVELS.indexOf(getClassLevel(className)) === -1) return false;
+
+    return staffContext.assignments.some(function (a) {
+        return !a.subject && normalizeClassKey(a.class_name) === wanted;
+    });
+
+}
+
+/* True when this staff member is form master of at least one Pre Basic / Basic class. */
+function staffIsFormMasterOfBasicClass() {
+
+    if (typeof staffContext === "undefined" || !staffContext) return false;
+
+    return staffContext.assignments.some(function (a) {
+        return !a.subject && FORM_MASTER_SCORE_LEVELS.indexOf(getClassLevel(a.class_name)) !== -1;
+    });
+
+}
+
+/* Subjects offered at this class's level, from the owner's full list. */
+function staffClassLevelSubjects(className) {
+
+    const level = getClassLevel(className);
+
+    if (!level) return [];
+
+    return staffServerSubjects.filter(function (subject) {
+        const levels = getSubjectLevels(subject);
+        return levels.length === 0 || levels.indexOf(level) !== -1;
+    });
+
+}
+
+/* Makes the Step 1B subject template section visible for a form master
+   of the selected Pre Basic / Basic class, and puts everything back the
+   way it was otherwise. */
+function applySubjectEntryAccess() {
+
+    const select = document.getElementById("subjectTemplateSelect");
+
+    document.querySelectorAll("[" + SRG_FORCED_ATTR + "]").forEach(function (el) {
+        const original = el.getAttribute(SRG_FORCED_ATTR);
+        el.style.removeProperty("display");
+        if (original) el.style.display = original;
+        el.removeAttribute(SRG_FORCED_ATTR);
+    });
+
+    document.body.classList.remove("srg-subject-entry");
+
+    if (!select) return;
+    if (typeof staffContext === "undefined" || !staffContext) return;
+    if (!staffCanEnterAllSubjects(getActiveClassName(false))) return;
+
+    document.body.classList.add("srg-subject-entry");
+
+    ["subjectTemplateSelect", "downloadSubjectTemplate", "subjectTemplateFile", "subjectTemplateStatus"].forEach(function (id) {
+
+        let el = document.getElementById(id);
+
+        while (el && el !== document.body && el.id !== "appSection") {
+
+            if (window.getComputedStyle(el).display === "none") {
+                el.setAttribute(SRG_FORCED_ATTR, el.style.display || "");
+                el.style.setProperty("display", "block", "important");
+            }
+
+            el = el.parentElement;
+
+        }
+
+    });
+
+}
+
 /* Adds subjects found in an uploaded file to the school list WITHOUT
    dropping the school's other subjects (a class's file only holds its
    own level's subjects, so replacing the list would wipe the rest). */
@@ -3276,6 +3374,7 @@ function resetSchoolProfileState() {
     reportSettings = JSON.parse(JSON.stringify(DEFAULT_REPORT_SETTINGS));
 
     profileSubjects = null;
+    staffServerSubjects = [];
     schoolSubjects = DEFAULT_SCHOOL_SUBJECTS.slice();
 
     try {
@@ -3343,6 +3442,12 @@ async function loadSchoolProfile(authUserId) {
                     uploadSubjects = true;
                 }
 
+            }
+
+            if (staffContext) {
+                staffServerSubjects = (Array.isArray(data.subjects) ? data.subjects : [])
+                    .map(function (name) { return String(name || "").trim(); })
+                    .filter(Boolean);
             }
 
             lastSyncedProfileJson = (uploadSubjects || migratedLogo) ? "" : JSON.stringify(buildSchoolProfilePayload());
@@ -4217,6 +4322,8 @@ function resetStaffMode() {
 
     document.body.classList.remove("srg-staff-mode", "srg-role-formmaster", "srg-role-subject", "srg-no-allowance");
 
+    applySubjectEntryAccess();
+
     const nav = document.querySelector(".srg-topbar");
     if (nav) nav.classList.remove("srg-staff");
 
@@ -4282,6 +4389,23 @@ async function loadStaffMembership(user) {
 /* Subjects the Step 1B dropdown may offer. */
 function subjectOptionsForCurrentUser() {
 
+    const list = assignedSubjectOptions();
+    const className = getActiveClassName(false);
+
+    /* Form master of a Pre Basic / Basic class: every subject of the class's level. */
+    if (staffContext && staffCanEnterAllSubjects(className)) {
+        staffClassLevelSubjects(className).forEach(function (subject) {
+            if (list.indexOf(subject) === -1) list.push(subject);
+        });
+    }
+
+    return list;
+
+}
+
+/* The subjects a staff member is assigned (owner: the class's subjects). */
+function assignedSubjectOptions() {
+
     if (!staffContext) {
         const activeClass = getActiveClassName(false);
         return activeClass ? subjectsForClass(activeClass) : schoolSubjects;
@@ -4322,7 +4446,9 @@ function renderStaffBanner() {
         html += "<br><strong>⚠️ " + escapeHTML(staffContext.notice) + "</strong>";
     }
 
-    html += "<br><small>You can only work on the classes and subjects assigned to you.</small>";
+    html += "<br><small>You can only work on the classes and subjects assigned to you" +
+        (staffIsFormMasterOfBasicClass() ? ", and enter scores for every subject of your Pre Basic / Basic class" : "") +
+        ".</small>";
 
     banner.innerHTML = html;
     banner.style.display = "block";
@@ -4365,7 +4491,7 @@ async function enterStaffMode(user, membership) {
     const nav = document.querySelector(".srg-topbar");
     if (nav) nav.classList.add("srg-staff");
 
-    schoolSubjects = subjectOptionsForCurrentUser();
+    schoolSubjects = assignedSubjectOptions();
 
     await fetchSchoolClasses();
 
@@ -4499,6 +4625,14 @@ async function refreshFormMasterSubjects() {
         const subject = String(row.subject || "").trim();
         if (subject && list.indexOf(subject) === -1) list.push(subject);
     });
+
+    /* Pre Basic / Basic form master: scores may be entered for every subject
+       of the level, so the master sheet and reports include them all. */
+    if (staffCanEnterAllSubjects(className)) {
+        staffClassLevelSubjects(className).forEach(function (subject) {
+            if (list.indexOf(subject) === -1) list.push(subject);
+        });
+    }
 
     list.sort(function (a, b) { return a.localeCompare(b); });
 
@@ -10927,6 +11061,8 @@ function populateSubjectTemplateSelect() {
     if (availableSubjects.includes(previousValue)) {
         subjectTemplateSelect.value = previousValue;
     }
+
+    applySubjectEntryAccess();
 
 }
 
