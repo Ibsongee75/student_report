@@ -856,39 +856,15 @@ function staffClassLevelSubjects(className) {
    way it was otherwise. */
 function applySubjectEntryAccess() {
 
-    const select = document.getElementById("subjectTemplateSelect");
-
-    document.querySelectorAll("[" + SRG_FORCED_ATTR + "]").forEach(function (el) {
-        const original = el.getAttribute(SRG_FORCED_ATTR);
-        el.style.removeProperty("display");
-        if (original) el.style.display = original;
-        el.removeAttribute(SRG_FORCED_ATTR);
-    });
-
     document.body.classList.remove("srg-subject-entry");
 
-    if (!select) return;
     if (typeof staffContext === "undefined" || !staffContext) return;
     if (!staffCanEnterAllSubjects(getActiveClassName(false))) return;
 
+    /* The CSS rule in index.html lets Step 1B show for this staff member.
+       No inline styles are forced, so the page system still controls
+       which page it appears on. */
     document.body.classList.add("srg-subject-entry");
-
-    ["subjectTemplateSelect", "downloadSubjectTemplate", "subjectTemplateFile", "subjectTemplateStatus"].forEach(function (id) {
-
-        let el = document.getElementById(id);
-
-        while (el && el !== document.body && el.id !== "appSection") {
-
-            if (window.getComputedStyle(el).display === "none") {
-                el.setAttribute(SRG_FORCED_ATTR, el.style.display || "");
-                el.style.setProperty("display", "block", "important");
-            }
-
-            el = el.parentElement;
-
-        }
-
-    });
 
 }
 
