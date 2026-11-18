@@ -888,15 +888,50 @@ function mergeDetectedSubjects(detected) {
    BEHAVIORAL TRAITS
    ========================================================= */
 
-const behavioralTraits = [
+/* The three domains shown on the report. Attendance belongs to the
+   Affective domain. Excel columns, uploads and reports all follow this list. */
+const behavioralDomains = [
 
-    "Attendance",
-    "Punctuality",
-    "Class Participation",
-    "Neatness",
-    "Honesty"
+    {
+        name: "Cognitive Domain",
+        traits: [
+            "Class Participation",
+            "Critical Thinking",
+            "Problem Solving",
+            "Comprehension",
+            "Innovation"
+        ]
+    },
+
+    {
+        name: "Affective Domain",
+        traits: [
+            "Attendance",
+            "Punctuality",
+            "Honesty",
+            "Cooperation",
+            "Leadership",
+            "Obedience",
+            "Neatness",
+            "Confidence"
+        ]
+    },
+
+    {
+        name: "Psychomotor Domain",
+        traits: [
+            "Handwriting",
+            "Drawing and Painting",
+            "Sports and Games",
+            "Craftsmanship"
+        ]
+    }
 
 ];
+
+const behavioralTraits = behavioralDomains.reduce(function (all, domain) {
+    return all.concat(domain.traits);
+}, []);
 
 
 /* =========================================================
@@ -16115,6 +16150,74 @@ function getReportComments(student) {
    CREATE REPORT
    ========================================================= */
 
+/* Total (1st CA + 2nd CA + Exams) a student scored in one subject,
+   or null when the student does not offer the subject. */
+function getStudentSubjectTotal(student, subjectName) {
+
+    const parts = [
+        student[subjectName + " 1st CA"],
+        student[subjectName + " 2nd CA"],
+        student[subjectName + " Exams"]
+    ];
+
+    const offered = parts.some(function (value) {
+        return String(value ?? "").trim() !== "";
+    });
+
+    if (!offered) return null;
+
+    return parts.reduce(function (sum, value) {
+        return sum + (Number(value) || 0);
+    }, 0);
+
+}
+
+/* Class average and the student's position in one subject, worked out
+   against classmates (same Class) who offer that subject. Equal totals
+   share a position (1, 2, 2, 4). */
+function getSubjectClassStatistics(student, subjectName) {
+
+    const mine = getStudentSubjectTotal(student, subjectName);
+
+    if (mine === null) return { average: null, position: null };
+
+    const classKey = normalizeClassKey(student["Class"]);
+
+    let sum = 0;
+    let count = 0;
+    let ahead = 0;
+    let foundSelf = false;
+
+    (students || []).forEach(function (other) {
+
+        if (other === student) foundSelf = true;
+
+        if (normalizeClassKey(other["Class"]) !== classKey) return;
+
+        const total = getStudentSubjectTotal(other, subjectName);
+
+        if (total === null) return;
+
+        sum += total;
+        count++;
+
+        if (total > mine) ahead++;
+
+    });
+
+    /* A student not in the uploaded list (e.g. the outlook preview sample). */
+    if (!foundSelf) {
+        sum += mine;
+        count++;
+    }
+
+    return {
+        average: count > 0 ? sum / count : null,
+        position: ahead + 1
+    };
+
+}
+
 function createReport(student) {
     const photoLayout = studentPhotoLayout(student["Admission No"], student["Student Name"]);
 
@@ -16366,6 +16469,8 @@ function createReport(student) {
             index
         ) {
 
+            const subjectStats = getSubjectClassStatistics(student, subject.name);
+
             subjectRows += `
 
                 <tr>
@@ -16404,6 +16509,14 @@ function createReport(student) {
                         )}
                     </td>
 
+                    <td class="subject-average-cell">
+                        ${subjectStats.average === null ? "—" : formatScore(subjectStats.average)}
+                    </td>
+
+                    <td class="subject-position-cell">
+                        ${subjectStats.position === null ? "—" : formatPosition(subjectStats.position)}
+                    </td>
+
                     <td class="grade-cell grade-${getGrade(subject.total)}">
                         ${getGrade(
                             subject.total
@@ -16433,75 +16546,34 @@ function createReport(student) {
 
 
     /* =====================================================
-       TRAIT HEADERS
+       BEHAVIOURAL DOMAINS (Cognitive / Affective / Psychomotor)
        ===================================================== */
 
-    let traitHeaders = `
+    const domainTables = behavioralDomains.map(function (domain) {
 
-        <th class="trait-title">
-            TRAIT
-        </th>
+        let traitHeaders = `<th class="trait-title">${escapeHTML(domain.name.toUpperCase())}</th>`;
+        let traitRatings = `<td class="trait-title">Rating</td>`;
 
-    `;
+        domain.traits.forEach(function (trait) {
+            const rating = behavior[trait] !== undefined ? behavior[trait] : "";
 
+            traitHeaders += `<th>${escapeHTML(trait)}</th>`;
+            traitRatings += `<td class="trait-rating">${escapeHTML(rating)}</td>`;
+        });
 
-    behavioralTraits.forEach(
-        function (trait) {
+        return `
+                <table class="behavior-table behavior-domain-table" style="margin-bottom:6px;">
+                    <thead>
+                        <tr>${traitHeaders}</tr>
+                    </thead>
+                    <tbody>
+                        <tr>${traitRatings}</tr>
+                    </tbody>
+                </table>
+        `;
 
-            traitHeaders += `
+    }).join("");
 
-                <th>
-                    ${escapeHTML(
-                        trait
-                    )}
-                </th>
-
-            `;
-
-        }
-    );
-
-
-    /* =====================================================
-       TRAIT RATINGS
-       ===================================================== */
-
-    let traitRatings = `
-
-        <td class="trait-title">
-            Rating
-        </td>
-
-    `;
-
-
-    behavioralTraits.forEach(
-        function (trait) {
-
-            const rating =
-
-                behavior[trait] !==
-                undefined
-
-                    ? behavior[trait]
-
-                    : "";
-
-
-            traitRatings += `
-
-                <td class="trait-rating">
-
-                    ${escapeHTML(
-                        rating
-                    )}
-
-                </td>
-
-            `;
-
-        }
-    );
 
 
     /* =====================================================
@@ -16831,7 +16903,20 @@ function createReport(student) {
 
             ${sectionHead("02", "Academic Performance", "Subject-by-subject assessment")}
 
-            <table class="result-table">
+            <table class="result-table" style="width:100%;max-width:100%;table-layout:fixed;">
+
+                <colgroup>
+                    <col style="width:4%;">
+                    <col style="width:26%;">
+                    <col style="width:8%;">
+                    <col style="width:8%;">
+                    <col style="width:8%;">
+                    <col style="width:8%;">
+                    <col style="width:8%;">
+                    <col style="width:8%;">
+                    <col style="width:8%;">
+                    <col style="width:14%;">
+                </colgroup>
 
                 <thead>
 
@@ -16866,6 +16951,16 @@ function createReport(student) {
                         </th>
 
                         <th>
+                            Subject<br>
+                            Avg
+                        </th>
+
+                        <th>
+                            Subject<br>
+                            Pos.
+                        </th>
+
+                        <th>
                             Grade
                         </th>
 
@@ -16893,7 +16988,7 @@ function createReport(student) {
                             OVERALL TOTAL
                         </th>
 
-                        <th colspan="3">
+                        <th colspan="5">
                             ${overallTotal.toFixed(2)}
                         </th>
 
@@ -16979,39 +17074,7 @@ function createReport(student) {
 
                 ${sectionHead("04", "Behavioural Development", "Rating scale: 1 = Lowest &nbsp;•&nbsp; 5 = Highest")}
 
-                <h3>
-                    BEHAVIORAL TRAITS
-                </h3>
-
-                <p>
-                    Rating: 1 = Lowest, 5 = Highest
-                </p>
-
-
-                <table class="behavior-table">
-
-                    <thead>
-
-                        <tr>
-
-                            ${traitHeaders}
-
-                        </tr>
-
-                    </thead>
-
-
-                    <tbody>
-
-                        <tr>
-
-                            ${traitRatings}
-
-                        </tr>
-
-                    </tbody>
-
-                </table>
+                ${domainTables}
 
             </div>
 
