@@ -16551,18 +16551,26 @@ function createReport(student) {
 
     const domainTables = behavioralDomains.map(function (domain) {
 
-        let traitHeaders = `<th class="trait-title">${escapeHTML(domain.name.toUpperCase())}</th>`;
-        let traitRatings = `<td class="trait-title">Rating</td>`;
+        /* Fixed column widths so tables with many traits (e.g. Affective)
+           always fit the page width instead of being clipped. */
+        const titleWidth = 16;   // % for the domain name column
+        const traitWidth = (100 - titleWidth) / domain.traits.length;
+
+        let colGroup = `<col style="width:${titleWidth}%;">`;
+        let traitHeaders = `<th class="trait-title" style="font-size:8px;padding:2px 3px;">${escapeHTML(domain.name.toUpperCase())}</th>`;
+        let traitRatings = `<td class="trait-title" style="font-size:8px;padding:2px 3px;">Rating</td>`;
 
         domain.traits.forEach(function (trait) {
             const rating = behavior[trait] !== undefined ? behavior[trait] : "";
 
-            traitHeaders += `<th>${escapeHTML(trait)}</th>`;
+            colGroup += `<col style="width:${traitWidth}%;">`;
+            traitHeaders += `<th style="font-size:8px;padding:2px 3px;word-break:break-word;">${escapeHTML(trait)}</th>`;
             traitRatings += `<td class="trait-rating">${escapeHTML(rating)}</td>`;
         });
 
         return `
-                <table class="behavior-table behavior-domain-table" style="margin-bottom:6px;">
+                <table class="behavior-table behavior-domain-table" style="margin-bottom:6px;width:100%;max-width:100%;table-layout:fixed;">
+                    <colgroup>${colGroup}</colgroup>
                     <thead>
                         <tr>${traitHeaders}</tr>
                     </thead>
