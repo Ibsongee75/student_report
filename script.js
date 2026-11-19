@@ -216,6 +216,9 @@ function reportSettingsForFingerprint() {
     /* Neither must tagging subjects/classes with levels. */
     delete copy.subjectLevels;
     delete copy.classLevels;
+    /* Nor must the website marking flag or the wording of the grade remarks. */
+    delete copy.markingFromWebsite;
+    delete copy.gradeRemarks;
     return copy;
 }
 
@@ -1897,7 +1900,7 @@ function initializeCollapsibleSections() {
         srgCollapsibleBlock(
             [
                 "schoolNameInput", "schoolAddressInput", "schoolLogoInput",
-                "schoolLogoPreview", "removeSchoolLogo",
+                "schoolLogoPreview", "removeSchoolLogo", "markingSettingsBlock",
                 "saveSchoolInformation", "schoolInformationStatus"
             ].map(byId),
             "School Information",
@@ -1931,6 +1934,10 @@ document.addEventListener(
         restoreAppData();
 
         createAutoCommentManager();
+
+        initializeOnlineScoreEntry();
+        initializeOnlineClassList();
+        initializeMarkingSettingsBlock();
 
         initializeCollapsibleSections();
 
@@ -6360,6 +6367,8 @@ function loadSchoolInformation() {
 
     renderReportOutlookPicker();
 
+    fillMarkingSettingsForm();
+
 }
 
 
@@ -6368,6 +6377,9 @@ function loadSchoolInformation() {
    ========================================================= */
 
 function saveSchoolInformation() {
+
+    /* Marking & Grading: stop here when the form has a problem. */
+    if (!applyMarkingSettingsFromForm()) return;
 
     const schoolName =
         schoolNameInput
@@ -12644,6 +12656,1401 @@ function handleSubjectTemplateUpload(event) {
 
 
 /* =========================================================
+   ENTER SUBJECT SCORES ON THE WEBSITE (no Excel needed)
+
+   A button in Step 1B opens a score sheet for the selected
+   Class | Session | Term | Subject. Students come from the Step 1A
+   class list, and any scores already saved are filled in. Saving
+   uses the same saveSubjectScoresToDatabase() as an uploaded subject
+   template, so the scores appear in Step 1C and in the general
+   template exactly the same way. The subject dropdown already limits
+   staff to their own subjects, so the same rules apply here.
+   ========================================================= */
+
+let onlineScoreState = null;
+
+function onlineScoreLimits() {
+    return {
+        first: Number(reportSettings.firstCAMaximum) || 20,
+        second: Number(reportSettings.secondCAMaximum) || 20,
+        exams: Number(reportSettings.examsMaximum) || 60
+    };
+}
+
+function initializeOnlineScoreEntry() {
+
+    if (document.getElementById("onlineScoreOpenButton")) return;
+    if (!elementExists(subjectTemplateStatus)) return;
+
+    const wrap = document.createElement("div");
+    wrap.id = "onlineScoreEntryWrap";
+    wrap.style.margin = "10px 0";
+    wrap.innerHTML =
+        '<button type="button" id="onlineScoreOpenButton">✏️ Enter Scores on the Website</button>' +
+        '<div style="font-size:12px;opacity:.75;margin-top:4px;">' +
+        "Type scores here instead of using Excel. They are saved the same way as an uploaded template." +
+        "</div>";
+
+    subjectTemplateStatus.insertAdjacentElement("beforebegin", wrap);
+
+    document
+        .getElementById("onlineScoreOpenButton")
+        .addEventListener("click", openOnlineScoreEntry);
+
+}
+
+function setOnlineScoreMessage(message, isError) {
+
+    const box = document.getElementById("onlineScoreMessage");
+    if (box) {
+        box.textContent = message || "";
+        box.style.color = isError ? "#b00020" : "#1b5e20";
+    }
+
+    if (elementExists(subjectTemplateStatus) && message) {
+        subjectTemplateStatus.textContent = message;
+    }
+
+}
+
+function closeOnlineScoreEntry(force) {
+
+    if (!force && onlineScoreState && onlineScoreState.dirty) {
+        if (!confirm("You have unsaved scores. Close without saving?")) return;
+    }
+
+    const overlay = document.getElementById("onlineScoreOverlay");
+    if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
+
+    onlineScoreState = null;
+
+}
+
+function onlineScoreRowHtml(row, index, limits, nameLocked) {
+
+    const val = function (v) {
+        return v === null || v === undefined ? "" : escapeHTML(v);
+    };
+
+    const cell = "padding:4px;border-bottom:1px solid #ddd;";
+    const num =
+        'type="number" inputmode="decimal" min="0" step="any" ' +
+        'style="width:58px;padding:6px;box-sizing:border-box;" data-row="' + index + '"';
+
+    const identity = nameLocked
+        ? '<td style="' + cell + 'white-space:nowrap;">' + escapeHTML(row.admission_no || "") + "</td>" +
+          '<td style="' + cell + '">' + escapeHTML(row.student_name || "") + "</td>"
+        : '<td style="' + cell + '"><input type="text" data-field="adm" data-row="' + index +
+          '" value="' + val(row.admission_no) + '" placeholder="Adm No" style="width:70px;padding:6px;box-sizing:border-box;"></td>' +
+          '<td style="' + cell + '"><input type="text" data-field="name" data-row="' + index +
+          '" value="' + val(row.student_name) + '" placeholder="Student name" style="width:150px;padding:6px;box-sizing:border-box;"></td>';
+
+    return (
+        '<tr data-row="' + index + '">' +
+        '<td style="' + cell + '">' + (index + 1) + "</td>" +
+        identity +
+        '<td style="' + cell + '"><input ' + num + ' data-field="first" max="' + limits.first +
+        '" value="' + val(row.first_ca) + '"></td>' +
+        '<td style="' + cell + '"><input ' + num + ' data-field="second" max="' + limits.second +
+        '" value="' + val(row.second_ca) + '"></td>' +
+        '<td style="' + cell + '"><input ' + num + ' data-field="exams" max="' + limits.exams +
+        '" value="' + val(row.exams) + '"></td>' +
+        '<td style="' + cell + 'font-weight:bold;text-align:center;" data-total="' + index + '"></td>' +
+        "</tr>"
+    );
+
+}
+
+function refreshOnlineScoreTotal(index) {
+
+    const tbody = document.getElementById("onlineScoreBody");
+    if (!tbody) return;
+
+    const read = function (field) {
+        const input = tbody.querySelector(
+            'input[data-field="' + field + '"][data-row="' + index + '"]'
+        );
+        return input ? input.value.trim() : "";
+    };
+
+    const parts = [read("first"), read("second"), read("exams")];
+    const filled = parts.filter(function (p) { return p !== ""; });
+
+    const totalCell = tbody.querySelector('[data-total="' + index + '"]');
+    if (!totalCell) return;
+
+    totalCell.textContent = filled.length === 0
+        ? ""
+        : String(
+            Math.round(
+                filled.reduce(function (sum, p) { return sum + (Number(p) || 0); }, 0) * 100
+            ) / 100
+        );
+
+}
+
+async function openOnlineScoreEntry() {
+
+    try {
+
+        if (!currentUserId) {
+            alert("Please sign in first.");
+            return;
+        }
+
+        const context = getWorkflowContext(true);
+        if (!context) return;
+
+        if (!elementExists(subjectTemplateSelect) || !subjectTemplateSelect.value) {
+            alert("Please add and select a subject first.");
+            return;
+        }
+
+        const subject = subjectTemplateSelect.value;
+        const limits = onlineScoreLimits();
+
+        closeOnlineScoreEntry(true);
+
+        const overlay = document.createElement("div");
+        overlay.id = "onlineScoreOverlay";
+        overlay.style.cssText =
+            "position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.55);" +
+            "display:flex;align-items:flex-start;justify-content:center;";
+
+        overlay.innerHTML =
+            '<div style="background:#fff;color:#111;width:100%;max-width:760px;height:100%;' +
+            'display:flex;flex-direction:column;">' +
+            '<div style="padding:10px 12px;border-bottom:1px solid #ccc;">' +
+            '<div style="font-weight:bold;">✏️ ' + escapeHTML(subject) + " scores</div>" +
+            '<div style="font-size:13px;opacity:.8;">' + escapeHTML(contextLabel(context)) + "</div>" +
+            '<div style="font-size:12px;opacity:.7;margin-top:2px;">Maximum marks: 1st CA ' + limits.first +
+            ", 2nd CA " + limits.second + ", Exams " + limits.exams + "</div>" +
+            "</div>" +
+            '<div id="onlineScoreScroll" style="flex:1;overflow:auto;padding:6px 8px;">' +
+            '<div id="onlineScoreLoading">⏳ Loading students and saved scores…</div>' +
+            "</div>" +
+            '<div style="padding:8px 12px;border-top:1px solid #ccc;">' +
+            '<div id="onlineScoreMessage" style="font-size:13px;min-height:18px;margin-bottom:6px;"></div>' +
+            '<button type="button" id="onlineScoreAddRow">+ Add student</button> ' +
+            '<button type="button" id="onlineScoreSave">💾 Save scores</button> ' +
+            '<button type="button" id="onlineScoreClose">Close</button>' +
+            "</div></div>";
+
+        document.body.appendChild(overlay);
+
+        document.getElementById("onlineScoreClose")
+            .addEventListener("click", function () { closeOnlineScoreEntry(false); });
+
+        const savedBySubject = await fetchAllSavedSubjectScoresForClass(
+            context.className, [subject], context.session, context.term
+        );
+
+        const roster = await fetchClassRoster(context.className, context.session);
+        const saved = savedBySubject[subject] || [];
+
+        const merged = roster.length > 0
+            ? mergeRosterWithSavedScores(roster, saved)
+            : saved;
+
+        const rows = merged.map(function (row) {
+            return {
+                admission_no: row.admission_no || "",
+                student_name: row.student_name || "",
+                first_ca: row.first_ca,
+                second_ca: row.second_ca,
+                exams: row.exams,
+                hadSaved:
+                    row.first_ca !== null && row.first_ca !== undefined ||
+                    row.second_ca !== null && row.second_ca !== undefined ||
+                    row.exams !== null && row.exams !== undefined,
+                locked: roster.length > 0
+            };
+        });
+
+        onlineScoreState = {
+            context: context,
+            subject: subject,
+            limits: limits,
+            rows: rows,
+            dirty: false
+        };
+
+        if (rows.length === 0) {
+            for (let i = 0; i < 5; i++) {
+                rows.push({
+                    admission_no: "", student_name: "",
+                    first_ca: null, second_ca: null, exams: null,
+                    hadSaved: false, locked: false
+                });
+            }
+        }
+
+        renderOnlineScoreTable(roster.length === 0);
+
+        document.getElementById("onlineScoreAddRow")
+            .addEventListener("click", function () {
+                collectOnlineScoreInputs();
+                onlineScoreState.rows.push({
+                    admission_no: "", student_name: "",
+                    first_ca: null, second_ca: null, exams: null,
+                    hadSaved: false, locked: false
+                });
+                renderOnlineScoreTable(false);
+                const scroll = document.getElementById("onlineScoreScroll");
+                if (scroll) scroll.scrollTop = scroll.scrollHeight;
+            });
+
+        document.getElementById("onlineScoreSave")
+            .addEventListener("click", saveOnlineScores);
+
+    } catch (error) {
+
+        console.error("Online score entry error:", error);
+        alert("❌ Could not open the score sheet.\n\n" + error.message);
+        closeOnlineScoreEntry(true);
+
+    }
+
+}
+
+/* Draws the table from onlineScoreState.rows. */
+function renderOnlineScoreTable(showNoListNote) {
+
+    const state = onlineScoreState;
+    const scroll = document.getElementById("onlineScoreScroll");
+    if (!state || !scroll) return;
+
+    const head = "padding:6px 4px;text-align:left;border-bottom:2px solid #999;" +
+        "position:sticky;top:0;background:#f2f2f2;";
+
+    let html = "";
+
+    if (showNoListNote) {
+        html +=
+            '<div style="font-size:12px;background:#fff8e1;padding:6px;margin-bottom:6px;">' +
+            "No class list was found for this class and session, so type each student's " +
+            "Adm No and name below. Uploading the class list in Step 1A is better, because " +
+            "names are then filled in for you." +
+            "</div>";
+    }
+
+    html +=
+        '<table style="border-collapse:collapse;width:100%;font-size:14px;">' +
+        "<thead><tr>" +
+        '<th style="' + head + '">#</th>' +
+        '<th style="' + head + '">Adm No</th>' +
+        '<th style="' + head + '">Student Name</th>' +
+        '<th style="' + head + '">1st CA<br><small>/' + state.limits.first + "</small></th>" +
+        '<th style="' + head + '">2nd CA<br><small>/' + state.limits.second + "</small></th>" +
+        '<th style="' + head + '">Exams<br><small>/' + state.limits.exams + "</small></th>" +
+        '<th style="' + head + '">Total</th>' +
+        '</tr></thead><tbody id="onlineScoreBody">';
+
+    state.rows.forEach(function (row, index) {
+        html += onlineScoreRowHtml(row, index, state.limits, row.locked);
+    });
+
+    html += "</tbody></table>";
+
+    scroll.innerHTML = html;
+
+    const body = document.getElementById("onlineScoreBody");
+
+    state.rows.forEach(function (row, index) { refreshOnlineScoreTotal(index); });
+
+    body.addEventListener("input", function (event) {
+
+        const input = event.target;
+        if (!input || !input.getAttribute) return;
+
+        state.dirty = true;
+
+        const index = Number(input.getAttribute("data-row"));
+        const field = input.getAttribute("data-field");
+
+        if (field === "first" || field === "second" || field === "exams") {
+
+            const max = state.limits[field];
+            const value = input.value.trim();
+            const bad = value !== "" && (isNaN(Number(value)) || Number(value) < 0 || Number(value) > max);
+
+            input.style.outline = bad ? "2px solid #d32f2f" : "";
+            refreshOnlineScoreTotal(index);
+
+        }
+
+    });
+
+    /* Enter moves down to the next student in the same column. */
+    body.addEventListener("keydown", function (event) {
+
+        if (event.key !== "Enter") return;
+
+        const input = event.target;
+        if (!input || !input.getAttribute) return;
+
+        const field = input.getAttribute("data-field");
+        if (!field) return;
+
+        event.preventDefault();
+
+        const next = body.querySelector(
+            'input[data-field="' + field + '"][data-row="' +
+            (Number(input.getAttribute("data-row")) + 1) + '"]'
+        );
+
+        if (next) {
+            next.focus();
+            if (next.select) next.select();
+        }
+
+    });
+
+}
+
+/* Copies what is typed in the table back into onlineScoreState.rows. */
+function collectOnlineScoreInputs() {
+
+    const state = onlineScoreState;
+    const body = document.getElementById("onlineScoreBody");
+    if (!state || !body) return;
+
+    state.rows.forEach(function (row, index) {
+
+        const read = function (field) {
+            const input = body.querySelector(
+                'input[data-field="' + field + '"][data-row="' + index + '"]'
+            );
+            return input ? input.value.trim() : null;
+        };
+
+        const adm = read("adm");
+        const name = read("name");
+
+        if (adm !== null) row.admission_no = adm;
+        if (name !== null) row.student_name = name;
+
+        row.first_ca = read("first");
+        row.second_ca = read("second");
+        row.exams = read("exams");
+
+    });
+
+}
+
+async function saveOnlineScores() {
+
+    const state = onlineScoreState;
+    if (!state) return;
+
+    const saveButton = document.getElementById("onlineScoreSave");
+
+    try {
+
+        collectOnlineScoreInputs();
+
+        const toNumber = function (text) {
+            const t = String(text === null || text === undefined ? "" : text).trim();
+            return t === "" ? "" : Number(t);
+        };
+
+        const payload = [];
+        const names = { first: "1st CA", second: "2nd CA", exams: "Exams" };
+
+        for (let i = 0; i < state.rows.length; i++) {
+
+            const row = state.rows[i];
+            const label = row.student_name || row.admission_no || ("row " + (i + 1));
+
+            const values = {
+                first: toNumber(row.first_ca),
+                second: toNumber(row.second_ca),
+                exams: toNumber(row.exams)
+            };
+
+            for (const field of ["first", "second", "exams"]) {
+
+                const v = values[field];
+                if (v === "") continue;
+
+                if (isNaN(v) || v < 0) {
+                    setOnlineScoreMessage("❌ " + label + ": " + names[field] + " must be a number, 0 or more.", true);
+                    return;
+                }
+
+                if (v > state.limits[field]) {
+                    setOnlineScoreMessage(
+                        "❌ " + label + ": " + names[field] + " cannot be more than " + state.limits[field] + ".",
+                        true
+                    );
+                    return;
+                }
+
+            }
+
+            const hasAny = values.first !== "" || values.second !== "" || values.exams !== "";
+            const hasIdentity = String(row.admission_no || "").trim() || String(row.student_name || "").trim();
+
+            /* Save a student who has a score now, or who had saved scores
+               that are being cleared. Untouched empty rows are skipped. */
+            if (!hasIdentity || (!hasAny && !row.hadSaved)) continue;
+
+            payload.push({
+                "Adm No": String(row.admission_no || "").trim(),
+                "Student Name": row.student_name,
+                "1st CA": values.first,
+                "2nd CA": values.second,
+                "Exams": values.exams,
+                _row: row
+            });
+
+        }
+
+        if (payload.length === 0) {
+            setOnlineScoreMessage("Nothing to save yet. Type at least one score.", true);
+            return;
+        }
+
+        if (saveButton) saveButton.disabled = true;
+        setOnlineScoreMessage("⏳ Saving " + state.subject + " scores…", false);
+
+        const savedCount = await saveSubjectScoresToDatabase(
+            state.context.className,
+            state.subject,
+            payload,
+            state.context.session,
+            state.context.term
+        );
+
+        payload.forEach(function (item) {
+            item._row.hadSaved =
+                item["1st CA"] !== "" || item["2nd CA"] !== "" || item["Exams"] !== "";
+        });
+
+        state.dirty = false;
+
+        setOnlineScoreMessage(
+            "✅ Saved " + savedCount + " " + state.subject + " record(s) for " +
+            contextLabel(state.context) + ". They will appear in Step 1C.",
+            false
+        );
+
+    } catch (error) {
+
+        console.error("Online score save error:", error);
+        setOnlineScoreMessage("❌ " + (error.message || "Could not save the scores."), true);
+
+    } finally {
+
+        if (saveButton) saveButton.disabled = false;
+
+    }
+
+}
+
+
+/* =========================================================
+   ENTER THE CLASS LIST ON THE WEBSITE (no Excel needed)
+
+   A button in Step 1A opens a class list sheet for the selected
+   Class | Session. The saved students are loaded for editing, and
+   saving uses the same rules and the same table as the Excel upload
+   (names required, no duplicates, removed students are taken off the
+   list, saved scores are never deleted). The list is shared by all
+   three terms of the session, exactly like an uploaded class list.
+   ========================================================= */
+
+let onlineClassState = null;
+
+function initializeOnlineClassList() {
+
+    if (document.getElementById("onlineClassOpenButton")) return;
+
+    /* Placed beside the Step 1A status line so it sits inside the Step 1A
+       section and follows that section's visibility. */
+    const anchor = document.getElementById("rosterStatus");
+    if (!anchor) return;
+
+    const wrap = document.createElement("div");
+    wrap.id = "onlineClassEntryWrap";
+    wrap.style.margin = "10px 0";
+    wrap.innerHTML =
+        '<button type="button" id="onlineClassOpenButton">✏️ Enter Class List on the Website</button>' +
+        '<div style="font-size:12px;opacity:.75;margin-top:4px;">' +
+        "Type or edit the students here instead of using Excel. It is saved the same way as an uploaded class list." +
+        "</div>";
+
+    anchor.insertAdjacentElement("beforebegin", wrap);
+
+    document
+        .getElementById("onlineClassOpenButton")
+        .addEventListener("click", openOnlineClassList);
+
+}
+
+function setOnlineClassMessage(message, isError) {
+
+    const box = document.getElementById("onlineClassMessage");
+    if (box) {
+        box.textContent = message || "";
+        box.style.color = isError ? "#b00020" : "#1b5e20";
+    }
+
+}
+
+function closeOnlineClassList(force) {
+
+    if (!force && onlineClassState && onlineClassState.dirty) {
+        if (!confirm("You have unsaved changes to the class list. Close without saving?")) return;
+    }
+
+    const overlay = document.getElementById("onlineClassOverlay");
+    if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
+
+    onlineClassState = null;
+
+}
+
+/* A staff member may only edit the class list of a class they are form master of. */
+function canEditClassListFor(className) {
+
+    if (typeof staffContext === "undefined" || !staffContext) return true;
+
+    return staffContext.assignments.some(function (a) {
+        return !a.subject && sameText(a.class_name, className);
+    });
+
+}
+
+function onlineClassRowHtml(row, index) {
+
+    const cell = "padding:4px;border-bottom:1px solid #ddd;";
+    const box = "padding:6px;box-sizing:border-box;";
+
+    const genders = ["", "Male", "Female"];
+    if (row.gender && genders.indexOf(row.gender) === -1) genders.push(row.gender);
+
+    const genderOptions = genders.map(function (g) {
+        return '<option value="' + escapeHTML(g) + '"' + (g === row.gender ? " selected" : "") + ">" +
+            (g === "" ? "-" : escapeHTML(g)) + "</option>";
+    }).join("");
+
+    return (
+        '<tr data-crow="' + index + '">' +
+        '<td style="' + cell + '">' + (index + 1) + "</td>" +
+        '<td style="' + cell + '"><input type="text" data-cfield="adm" data-crow="' + index +
+        '" value="' + escapeHTML(row.admission_no) + '" placeholder="Adm No" autocomplete="off" ' +
+        'style="width:78px;' + box + '"></td>' +
+        '<td style="' + cell + '"><input type="text" data-cfield="name" data-crow="' + index +
+        '" value="' + escapeHTML(row.student_name) + '" placeholder="Student name" autocomplete="off" ' +
+        'autocapitalize="words" style="width:170px;' + box + '"></td>' +
+        '<td style="' + cell + '"><select data-cfield="gender" data-crow="' + index +
+        '" style="width:84px;' + box + '">' + genderOptions + "</select></td>" +
+        '<td style="' + cell + '"><input type="text" data-cfield="house" data-crow="' + index +
+        '" value="' + escapeHTML(row.house) + '" placeholder="House" autocomplete="off" ' +
+        'style="width:72px;' + box + '"></td>' +
+        '<td style="' + cell + '"><button type="button" data-cremove="' + index +
+        '" title="Remove this student" style="padding:4px 8px;">✕</button></td>' +
+        "</tr>"
+    );
+
+}
+
+function blankOnlineClassRow() {
+    return { admission_no: "", student_name: "", gender: "", house: "" };
+}
+
+/* Copies what is typed in the table back into onlineClassState.rows. */
+function collectOnlineClassInputs() {
+
+    const state = onlineClassState;
+    const body = document.getElementById("onlineClassBody");
+    if (!state || !body) return;
+
+    state.rows.forEach(function (row, index) {
+
+        const read = function (field) {
+            const input = body.querySelector(
+                '[data-cfield="' + field + '"][data-crow="' + index + '"]'
+            );
+            return input ? input.value : "";
+        };
+
+        row.admission_no = read("adm").trim();
+        row.student_name = read("name");
+        row.gender = read("gender").trim();
+        row.house = read("house").trim();
+
+    });
+
+}
+
+function renderOnlineClassTable(focusIndex) {
+
+    const state = onlineClassState;
+    const scroll = document.getElementById("onlineClassScroll");
+    if (!state || !scroll) return;
+
+    const head = "padding:6px 4px;text-align:left;border-bottom:2px solid #999;" +
+        "position:sticky;top:0;background:#f2f2f2;";
+
+    let html =
+        '<div style="font-size:12px;background:#fff8e1;padding:6px;margin-bottom:6px;">' +
+        "Student Name is required. Admission No is optional but helps keep a student linked to " +
+        "their saved scores if the name is ever corrected. Press Enter in a name box to go to the next student." +
+        "</div>" +
+        '<table style="border-collapse:collapse;width:100%;font-size:14px;">' +
+        "<thead><tr>" +
+        '<th style="' + head + '">#</th>' +
+        '<th style="' + head + '">Adm No</th>' +
+        '<th style="' + head + '">Student Name</th>' +
+        '<th style="' + head + '">Gender</th>' +
+        '<th style="' + head + '">House</th>' +
+        '<th style="' + head + '"></th>' +
+        '</tr></thead><tbody id="onlineClassBody">';
+
+    state.rows.forEach(function (row, index) {
+        html += onlineClassRowHtml(row, index);
+    });
+
+    html += "</tbody></table>";
+
+    scroll.innerHTML = html;
+
+    const count = document.getElementById("onlineClassCount");
+    if (count) count.textContent = state.rows.length + " row(s)";
+
+    const body = document.getElementById("onlineClassBody");
+
+    body.addEventListener("input", function () { state.dirty = true; });
+    body.addEventListener("change", function () { state.dirty = true; });
+
+    body.addEventListener("click", function (event) {
+
+        const target = event.target;
+        if (!target || !target.getAttribute) return;
+
+        const removeIndex = target.getAttribute("data-cremove");
+        if (removeIndex === null) return;
+
+        collectOnlineClassInputs();
+        state.rows.splice(Number(removeIndex), 1);
+        if (state.rows.length === 0) state.rows.push(blankOnlineClassRow());
+        state.dirty = true;
+        renderOnlineClassTable();
+
+    });
+
+    /* Enter in a name box moves to the next student's name, adding a new row after the last. */
+    body.addEventListener("keydown", function (event) {
+
+        if (event.key !== "Enter") return;
+
+        const input = event.target;
+        if (!input || !input.getAttribute) return;
+
+        const field = input.getAttribute("data-cfield");
+        if (field !== "name" && field !== "adm" && field !== "house") return;
+
+        event.preventDefault();
+
+        const index = Number(input.getAttribute("data-crow"));
+        const nextSelector = '[data-cfield="' + field + '"][data-crow="' + (index + 1) + '"]';
+        const next = body.querySelector(nextSelector);
+
+        if (next) {
+            next.focus();
+            if (next.select) next.select();
+            return;
+        }
+
+        if (field === "name") {
+            collectOnlineClassInputs();
+            state.rows.push(blankOnlineClassRow());
+            state.dirty = true;
+            renderOnlineClassTable(index + 1);
+        }
+
+    });
+
+    if (focusIndex !== undefined && focusIndex !== null) {
+        const target = body.querySelector(
+            '[data-cfield="name"][data-crow="' + focusIndex + '"]'
+        );
+        if (target) {
+            target.focus();
+            target.scrollIntoView({ block: "center" });
+        }
+    }
+
+}
+
+async function openOnlineClassList() {
+
+    try {
+
+        if (!currentUserId) {
+            alert("Please sign in first.");
+            return;
+        }
+
+        const context = getWorkflowContext(true);
+        if (!context) return;
+
+        if (!canEditClassListFor(context.className)) {
+            alert("Only the school owner or the form master of " + context.className +
+                " can change its class list.");
+            return;
+        }
+
+        closeOnlineClassList(true);
+
+        const overlay = document.createElement("div");
+        overlay.id = "onlineClassOverlay";
+        overlay.style.cssText =
+            "position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.55);" +
+            "display:flex;align-items:flex-start;justify-content:center;";
+
+        overlay.innerHTML =
+            '<div style="background:#fff;color:#111;width:100%;max-width:760px;height:100%;' +
+            'display:flex;flex-direction:column;">' +
+            '<div style="padding:10px 12px;border-bottom:1px solid #ccc;">' +
+            '<div style="font-weight:bold;">✏️ Class list</div>' +
+            '<div style="font-size:13px;opacity:.8;">' + escapeHTML(contextLabel(context, false)) +
+            ' <span id="onlineClassCount" style="opacity:.8;"></span></div>' +
+            "</div>" +
+            '<div id="onlineClassScroll" style="flex:1;overflow:auto;padding:6px 8px;">' +
+            "⏳ Loading the saved class list…" +
+            "</div>" +
+            '<div style="padding:8px 12px;border-top:1px solid #ccc;">' +
+            '<div id="onlineClassMessage" style="font-size:13px;min-height:18px;margin-bottom:6px;"></div>' +
+            '<button type="button" id="onlineClassAddRow">+ Add student</button> ' +
+            '<button type="button" id="onlineClassAddFive">+ Add 5 rows</button> ' +
+            '<button type="button" id="onlineClassSort">Sort A-Z</button> ' +
+            '<button type="button" id="onlineClassSave">💾 Save class list</button> ' +
+            '<button type="button" id="onlineClassClose">Close</button>' +
+            "</div></div>";
+
+        document.body.appendChild(overlay);
+
+        document.getElementById("onlineClassClose")
+            .addEventListener("click", function () { closeOnlineClassList(false); });
+
+        const existing = await fetchClassRoster(context.className, context.session);
+
+        if (rosterFetchFailed) {
+            throw new Error("The saved class list could not be loaded, so it was not opened for editing.");
+        }
+
+        const rows = existing.map(function (s) {
+            return {
+                admission_no: s.admission_no || "",
+                student_name: s.student_name || "",
+                gender: s.gender || "",
+                house: s.house || ""
+            };
+        });
+
+        if (rows.length === 0) {
+            for (let i = 0; i < 5; i++) rows.push(blankOnlineClassRow());
+        }
+
+        onlineClassState = {
+            context: context,
+            rows: rows,
+            existing: existing,
+            dirty: false
+        };
+
+        renderOnlineClassTable();
+
+        const addRows = function (count) {
+            collectOnlineClassInputs();
+            const firstNew = onlineClassState.rows.length;
+            for (let i = 0; i < count; i++) onlineClassState.rows.push(blankOnlineClassRow());
+            onlineClassState.dirty = true;
+            renderOnlineClassTable(firstNew);
+        };
+
+        document.getElementById("onlineClassAddRow")
+            .addEventListener("click", function () { addRows(1); });
+
+        document.getElementById("onlineClassAddFive")
+            .addEventListener("click", function () { addRows(5); });
+
+        document.getElementById("onlineClassSort")
+            .addEventListener("click", function () {
+                collectOnlineClassInputs();
+                const filled = onlineClassState.rows.filter(function (r) {
+                    return r.student_name.trim() || r.admission_no;
+                });
+                const blanks = onlineClassState.rows.length - filled.length;
+                filled.sort(function (a, b) {
+                    return cleanStudentName(a.student_name).localeCompare(
+                        cleanStudentName(b.student_name), undefined, { sensitivity: "base" }
+                    );
+                });
+                for (let i = 0; i < blanks; i++) filled.push(blankOnlineClassRow());
+                onlineClassState.rows = filled;
+                onlineClassState.dirty = true;
+                renderOnlineClassTable();
+            });
+
+        document.getElementById("onlineClassSave")
+            .addEventListener("click", saveOnlineClassList);
+
+    } catch (error) {
+
+        console.error("Online class list error:", error);
+        alert("❌ Could not open the class list.\n\n" + error.message);
+        closeOnlineClassList(true);
+
+    }
+
+}
+
+async function saveOnlineClassList() {
+
+    const state = onlineClassState;
+    if (!state) return;
+
+    const saveButton = document.getElementById("onlineClassSave");
+    const context = state.context;
+
+    try {
+
+        collectOnlineClassInputs();
+
+        const students = [];
+        const seenKeys = new Set();
+        const seenAdmissions = new Set();
+
+        for (let i = 0; i < state.rows.length; i++) {
+
+            const row = state.rows[i];
+            const name = cleanStudentName(row.student_name);
+            const admission = String(row.admission_no || "").trim();
+
+            if (!name && !admission) continue;
+
+            if (!name) {
+                setOnlineClassMessage("❌ Row " + (i + 1) + " has an Admission No but no Student Name.", true);
+                return;
+            }
+
+            const key = rosterKey(admission, name);
+
+            if (seenKeys.has(key)) {
+                setOnlineClassMessage(
+                    "❌ \"" + name + "\" appears twice" +
+                    (admission ? "." : " - add an Admission No to tell them apart."),
+                    true
+                );
+                return;
+            }
+
+            const admKey = normalizeStudentAdmissionNo(admission);
+
+            if (admKey && seenAdmissions.has(admKey)) {
+                setOnlineClassMessage("❌ Admission No \"" + admission + "\" is used by two students.", true);
+                return;
+            }
+
+            seenKeys.add(key);
+            if (admKey) seenAdmissions.add(admKey);
+
+            students.push({
+                admission_no: admission,
+                student_name: name,
+                gender: String(row.gender || "").trim(),
+                house: String(row.house || "").trim()
+            });
+
+        }
+
+        if (students.length === 0) {
+            setOnlineClassMessage("❌ Enter at least one student name.", true);
+            return;
+        }
+
+        if (students.length > TEMPLATE_STUDENT_ROWS) {
+            setOnlineClassMessage(
+                "❌ A class can have at most " + TEMPLATE_STUDENT_ROWS +
+                " students (this list has " + students.length + ").",
+                true
+            );
+            return;
+        }
+
+        if (saveButton) saveButton.disabled = true;
+        setOnlineClassMessage("⏳ Checking the saved list…", false);
+
+        /* Compare with what is saved right now (it may have changed on another device). */
+        const existing = await fetchClassRoster(context.className, context.session);
+
+        if (rosterFetchFailed) {
+            throw new Error("The saved class list could not be checked, so nothing was changed.");
+        }
+
+        const newKeys = new Set(students.map(function (s) {
+            return rosterKey(s.admission_no, s.student_name);
+        }));
+
+        const removed = existing.filter(function (s) {
+            return !newKeys.has(rosterKey(s.admission_no, s.student_name));
+        });
+
+        if (
+            removed.length > 0 &&
+            !confirm(
+                removed.length + " saved student(s) for " + contextLabel(context, false) +
+                " are not in this list (removed or renamed) and will be taken off the class list. " +
+                "Their saved scores are not deleted.\n\nContinue?"
+            )
+        ) {
+            setOnlineClassMessage("Cancelled. The saved class list was not changed.", false);
+            return;
+        }
+
+        setOnlineClassMessage("⏳ Saving " + students.length + " student(s)…", false);
+
+        const now = new Date().toISOString();
+
+        const payload = students.map(function (student, index) {
+            return {
+                owner_user_id: currentUserId,
+                website_id: WEBSITE_ID,
+                class_name: context.className,
+                session: context.session,
+                admission_no: student.admission_no,
+                student_name: student.student_name,
+                gender: student.gender,
+                house: student.house,
+                match_key: rosterKey(student.admission_no, student.student_name),
+                sort_order: index,
+                updated_at: now
+            };
+        });
+
+        const { error: saveError } = await supabaseClient
+            .from(CLASS_ROSTER_TABLE)
+            .upsert(payload, {
+                onConflict: "owner_user_id,website_id,class_name,session,match_key"
+            });
+
+        if (saveError) throw new Error(saveError.message || "Could not save the class list.");
+
+        const removedKeys = removed.map(function (s) {
+            return rosterKey(s.admission_no, s.student_name);
+        });
+
+        for (let i = 0; i < removedKeys.length; i += 100) {
+
+            const { error: deleteError } = await supabaseClient
+                .from(CLASS_ROSTER_TABLE)
+                .delete()
+                .eq("owner_user_id", currentUserId)
+                .eq("website_id", WEBSITE_ID)
+                .eq("class_name", context.className)
+                .eq("session", context.session)
+                .in("match_key", removedKeys.slice(i, i + 100));
+
+            if (deleteError) throw new Error(deleteError.message || "Could not remove old names.");
+
+        }
+
+        classRoster = await fetchClassRoster(context.className, context.session);
+        renderStudentPreview();
+
+        /* Show the saved list again (cleaned names, saved order). */
+        state.rows = classRoster.map(function (s) {
+            return {
+                admission_no: s.admission_no || "",
+                student_name: s.student_name || "",
+                gender: s.gender || "",
+                house: s.house || ""
+            };
+        });
+
+        state.dirty = false;
+        renderOnlineClassTable();
+
+        const doneMessage =
+            "✅ " + students.length + " student(s) saved for " + contextLabel(context, false) +
+            ". They now appear automatically in Step 1B and Step 1C.";
+
+        setOnlineClassMessage(doneMessage, false);
+        setRosterStatus(doneMessage);
+
+    } catch (error) {
+
+        console.error("Online class list save error:", error);
+        setOnlineClassMessage("❌ " + (error.message || "Could not save the class list."), true);
+
+    } finally {
+
+        if (saveButton) saveButton.disabled = false;
+
+    }
+
+}
+
+
+/* =========================================================
+   MARKING & GRADING SETTINGS (inside School Information)
+
+   Lets the owner set the 1st CA, 2nd CA and Exams maximum marks, the
+   mark each grade A-E starts at, and the remark (key) shown for each
+   grade, directly on the website. They are saved with the rest of the
+   school profile by the existing "Save School Information" button, so
+   they follow the school to every device and staff login.
+
+   Once saved here, these website values win: an uploaded Excel file's
+   Settings sheet no longer overwrites them (see readSettings below).
+   ========================================================= */
+
+const MARKING_GRADE_LETTERS = ["A", "B", "C", "D", "E", "F"];
+const MARKING_NUMBER_KEYS = [
+    "firstCAMaximum", "secondCAMaximum", "examsMaximum",
+    "gradeA", "gradeB", "gradeC", "gradeD", "gradeE"
+];
+
+function markingEl(id) {
+    return document.getElementById(id);
+}
+
+function markingNumberOr(value, fallback) {
+    const n = Number(value);
+    return value === undefined || value === null || value === "" || !isFinite(n) ? fallback : n;
+}
+
+function initializeMarkingSettingsBlock() {
+
+    if (markingEl("markingSettingsBlock")) return;
+    if (!elementExists(saveSchoolInformationButton)) return;
+
+    const input =
+        'type="number" inputmode="decimal" min="0" step="any" ' +
+        'style="width:100%;box-sizing:border-box;padding:6px;"';
+
+    const cellStyle = "padding:4px;border-bottom:1px solid #ddd;";
+
+    let gradeRows = "";
+
+    MARKING_GRADE_LETTERS.forEach(function (letter) {
+
+        const isLast = letter === "F";
+
+        gradeRows +=
+            "<tr>" +
+            '<td style="' + cellStyle + 'font-weight:bold;text-align:center;">' + letter + "</td>" +
+            '<td style="' + cellStyle + '">' +
+            (isLast
+                ? '<span style="font-size:12px;opacity:.75;">Below E</span>'
+                : '<input id="markGrade' + letter + '" ' + input + ">") +
+            "</td>" +
+            '<td style="' + cellStyle + '"><input id="markRemark' + letter +
+            '" type="text" maxlength="24" autocomplete="off" ' +
+            'style="width:100%;box-sizing:border-box;padding:6px;"></td>' +
+            '<td style="' + cellStyle + 'font-size:12px;white-space:nowrap;" id="markRange' + letter + '"></td>' +
+            "</tr>";
+
+    });
+
+    const block = document.createElement("div");
+    block.id = "markingSettingsBlock";
+    block.style.cssText = "margin:12px 0;";
+
+    block.innerHTML =
+        '<div style="font-weight:bold;margin-bottom:4px;">Marking &amp; Grading</div>' +
+
+        '<div style="font-size:13px;margin-bottom:4px;">Maximum marks</div>' +
+        '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">' +
+        '<label style="font-size:12px;">1st CA' +
+        '<input id="markFirstCA" ' + input + "></label>" +
+        '<label style="font-size:12px;">2nd CA' +
+        '<input id="markSecondCA" ' + input + "></label>" +
+        '<label style="font-size:12px;">Exams' +
+        '<input id="markExams" ' + input + "></label>" +
+        "</div>" +
+        '<div id="markTotalNote" style="font-size:12px;margin:4px 0 10px;"></div>' +
+
+        '<div style="font-size:13px;margin-bottom:4px;">Grading key (marks out of the total)</div>' +
+        '<table style="border-collapse:collapse;width:100%;font-size:14px;">' +
+        "<thead><tr>" +
+        '<th style="text-align:center;padding:4px;border-bottom:2px solid #999;">Grade</th>' +
+        '<th style="text-align:left;padding:4px;border-bottom:2px solid #999;">Starts at</th>' +
+        '<th style="text-align:left;padding:4px;border-bottom:2px solid #999;">Remark</th>' +
+        '<th style="text-align:left;padding:4px;border-bottom:2px solid #999;">Marks</th>' +
+        "</tr></thead><tbody>" + gradeRows + "</tbody></table>" +
+
+        '<div id="markingSettingsMessage" style="font-size:13px;min-height:18px;margin-top:6px;"></div>' +
+        '<div style="font-size:12px;opacity:.75;margin-top:2px;">' +
+        "Press Save School Information to apply. Scores already entered are not changed, so download " +
+        "fresh templates after changing the maximums." +
+        "</div>";
+
+    saveSchoolInformationButton.insertAdjacentElement("beforebegin", block);
+
+    block.addEventListener("input", updateMarkingPreview);
+
+    fillMarkingSettingsForm();
+
+}
+
+function showMarkingMessage(message, isError) {
+
+    const box = markingEl("markingSettingsMessage");
+
+    if (box) {
+        box.textContent = message || "";
+        box.style.color = isError ? "#b00020" : "#1b5e20";
+    }
+
+}
+
+/* Puts the saved settings into the form. */
+function fillMarkingSettingsForm() {
+
+    if (!markingEl("markingSettingsBlock")) return;
+
+    const s = reportSettings;
+
+    const set = function (id, value) {
+        const el = markingEl(id);
+        if (el) el.value = value;
+    };
+
+    set("markFirstCA", markingNumberOr(s.firstCAMaximum, 20) || 20);
+    set("markSecondCA", markingNumberOr(s.secondCAMaximum, 20) || 20);
+    set("markExams", markingNumberOr(s.examsMaximum, 60) || 60);
+
+    set("markGradeA", markingNumberOr(s.gradeA, 70));
+    set("markGradeB", markingNumberOr(s.gradeB, 60));
+    set("markGradeC", markingNumberOr(s.gradeC, 50));
+    set("markGradeD", markingNumberOr(s.gradeD, 45));
+    set("markGradeE", markingNumberOr(s.gradeE, 40));
+
+    MARKING_GRADE_LETTERS.forEach(function (letter) {
+        set("markRemark" + letter, getGradeRemark(letter));
+    });
+
+    updateMarkingPreview();
+
+}
+
+/* Reads the form into a plain object (numbers are NaN when blank/invalid). */
+function readMarkingForm() {
+
+    const num = function (id) {
+        const el = markingEl(id);
+        const text = el ? String(el.value).trim() : "";
+        return text === "" ? NaN : Number(text);
+    };
+
+    const remarks = {};
+
+    MARKING_GRADE_LETTERS.forEach(function (letter) {
+        const el = markingEl("markRemark" + letter);
+        remarks[letter] = el ? el.value.trim() : "";
+    });
+
+    return {
+        firstCAMaximum: num("markFirstCA"),
+        secondCAMaximum: num("markSecondCA"),
+        examsMaximum: num("markExams"),
+        gradeA: num("markGradeA"),
+        gradeB: num("markGradeB"),
+        gradeC: num("markGradeC"),
+        gradeD: num("markGradeD"),
+        gradeE: num("markGradeE"),
+        gradeF: 0,
+        gradeRemarks: remarks
+    };
+
+}
+
+/* Returns a message describing the first problem, or "" when everything is valid. */
+function validateMarkingDraft(d) {
+
+    const names = {
+        firstCAMaximum: "1st CA maximum",
+        secondCAMaximum: "2nd CA maximum",
+        examsMaximum: "Exams maximum"
+    };
+
+    for (const key of Object.keys(names)) {
+        if (!isFinite(d[key]) || d[key] <= 0) {
+            return names[key] + " must be a number above 0.";
+        }
+    }
+
+    const total = d.firstCAMaximum + d.secondCAMaximum + d.examsMaximum;
+    const letters = ["A", "B", "C", "D", "E"];
+
+    for (const letter of letters) {
+        const value = d["grade" + letter];
+        if (!isFinite(value) || value < 0) {
+            return "Grade " + letter + " must start at a number, 0 or more.";
+        }
+    }
+
+    if (d.gradeA > total) {
+        return "Grade A cannot start above the total maximum (" + total + ").";
+    }
+
+    for (let i = 1; i < letters.length; i++) {
+        if (d["grade" + letters[i]] >= d["grade" + letters[i - 1]]) {
+            return "Grade " + letters[i] + " must start lower than grade " + letters[i - 1] + ".";
+        }
+    }
+
+    for (const letter of MARKING_GRADE_LETTERS) {
+        if (d.gradeRemarks[letter].length > 24) {
+            return "The remark for grade " + letter + " is too long (24 letters at most).";
+        }
+    }
+
+    return "";
+
+}
+
+/* Live total and the marks range of each grade, as the report will show them. */
+function updateMarkingPreview() {
+
+    const d = readMarkingForm();
+    const error = validateMarkingDraft(d);
+
+    const totalNote = markingEl("markTotalNote");
+    const total = d.firstCAMaximum + d.secondCAMaximum + d.examsMaximum;
+
+    if (totalNote) {
+        totalNote.textContent = isFinite(total)
+            ? "Total maximum: " + formatGradeBound(total) +
+              (total === 100 ? "" : " (schools usually use 100)")
+            : "";
+        totalNote.style.color = isFinite(total) && total !== 100 ? "#8a5a00" : "inherit";
+    }
+
+    MARKING_GRADE_LETTERS.forEach(function (letter) {
+        const cell = markingEl("markRange" + letter);
+        if (cell) cell.textContent = "";
+    });
+
+    if (error) {
+        showMarkingMessage("⚠ " + error, true);
+        return;
+    }
+
+    showMarkingMessage("", false);
+
+    const draftSettings = Object.assign({}, reportSettings, d);
+
+    getGradeKeyRows(draftSettings).forEach(function (row) {
+        const cell = markingEl("markRange" + row.grade);
+        if (cell) cell.textContent = row.range;
+    });
+
+}
+
+/* Called at the start of saveSchoolInformation(). Returns false (and saves
+   nothing) when the form has a problem or the owner cancels. */
+function applyMarkingSettingsFromForm() {
+
+    if (!markingEl("markingSettingsBlock")) return true;
+
+    /* Only the school owner's settings are ever saved from here. */
+    if (typeof staffContext !== "undefined" && staffContext) return true;
+
+    const d = readMarkingForm();
+    const error = validateMarkingDraft(d);
+
+    if (error) {
+        showMarkingMessage("❌ " + error, true);
+        if (schoolInformationStatus) {
+            schoolInformationStatus.textContent = "❌ Not saved: " + error;
+        }
+        return false;
+    }
+
+    const changed = MARKING_NUMBER_KEYS.some(function (key) {
+        return Number(reportSettings[key]) !== d[key];
+    });
+
+    if (
+        changed &&
+        !confirm(
+            "Changing the maximum marks or grade starting marks changes how every report is " +
+            "calculated. Reports you already generated may count against your report allowance " +
+            "again if you generate them again.\n\nSave these changes?"
+        )
+    ) {
+        showMarkingMessage("Not saved. Nothing was changed.", false);
+        if (schoolInformationStatus) {
+            schoolInformationStatus.textContent = "Not saved. Nothing was changed.";
+        }
+        return false;
+    }
+
+    MARKING_NUMBER_KEYS.forEach(function (key) {
+        reportSettings[key] = d[key];
+    });
+
+    reportSettings.gradeF = 0;
+
+    /* Only wording that differs from the built-in key is stored. */
+    const custom = {};
+    let hasCustom = false;
+
+    MARKING_GRADE_LETTERS.forEach(function (letter) {
+        const text = d.gradeRemarks[letter];
+        if (text && text !== GRADE_REMARKS[letter]) {
+            custom[letter] = text;
+            hasCustom = true;
+        }
+    });
+
+    if (hasCustom) {
+        reportSettings.gradeRemarks = custom;
+    } else {
+        delete reportSettings.gradeRemarks;
+    }
+
+    /* From now on the website values win over an Excel file's Settings sheet. */
+    reportSettings.markingFromWebsite = true;
+
+    showMarkingMessage("✓ Marking and grading saved.", false);
+
+    return true;
+
+}
+
+/* The Settings sheet of an uploaded Excel file used to set these values. Once
+   they have been saved on the website, the website values are kept instead. */
+function readSettings(settingsSheet) {
+
+    if (!reportSettings.markingFromWebsite) {
+        return readSettingsFromSheet(settingsSheet);
+    }
+
+    const keep = {};
+
+    MARKING_NUMBER_KEYS.concat(["gradeF"]).forEach(function (key) {
+        keep[key] = reportSettings[key];
+    });
+
+    const result = readSettingsFromSheet(settingsSheet);
+
+    Object.keys(keep).forEach(function (key) {
+        reportSettings[key] = keep[key];
+    });
+
+    return result;
+
+}
+
+
+/* =========================================================
    DOWNLOAD EXCEL TEMPLATE
    ========================================================= */
 
@@ -13484,7 +14891,7 @@ function handleExcelUpload(event) {
    READ SETTINGS
    ========================================================= */
 
-function readSettings(
+function readSettingsFromSheet(
     settingsSheet
 ) {
 
@@ -17181,7 +18588,12 @@ const GRADE_REMARKS = {
     F: "Failed"
 };
 
-function getGradeRemark(grade) {
+function getGradeRemark(grade, settingsOverride) {
+    const source = settingsOverride || reportSettings;
+    const custom = source && source.gradeRemarks;
+    if (custom && typeof custom[grade] === "string" && custom[grade].trim()) {
+        return custom[grade].trim();
+    }
     return GRADE_REMARKS[grade] || "";
 }
 
@@ -17194,9 +18606,9 @@ function formatGradeBound(value) {
 
 /* The mark range that earns each grade, read from the school's
    own Grade A-F minimums (Settings), never hard-coded. */
-function getGradeKeyRows() {
+function getGradeKeyRows(settingsOverride) {
 
-    const s = reportSettings;
+    const s = settingsOverride || reportSettings;
 
     const totalMax =
         (Number(s.firstCAMaximum) || 20) +
@@ -17231,7 +18643,7 @@ function getGradeKeyRows() {
 
         return {
             grade: grade,
-            remark: getGradeRemark(grade),
+            remark: getGradeRemark(grade, s),
             range: range
         };
 
