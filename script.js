@@ -213,6 +213,9 @@ function reportSettingsForFingerprint() {
     delete copy.commentBank;
     /* Changing the report outlook must not make reports count as new. */
     delete copy.reportTemplate;
+    /* Nor must editing the promotion rules (the promotion note on the
+       cumulative report follows the rules without using allowance). */
+    delete copy.promotion;
     /* Neither must tagging subjects/classes with levels. */
     delete copy.subjectLevels;
     delete copy.classLevels;
@@ -11518,12 +11521,188 @@ function autoCommentsForCumulative(student) {
 
 }
 
+/* Attendance for the whole session. Never throws. */
+async function cumulativeLoadAttendance(model) {
+    try {
+        return await promotionLoadAttendance(model.context.className, model.context.session);
+    } catch (error) {
+        console.error("Cumulative attendance error:", error);
+        return { map: new Map(), failed: true };
+    }
+}
+
+/* "(present/opened) days" for the whole session, or "" when none is saved. */
+function cumulativeAttendanceText(student, model) {
+
+    const info = model.attendanceInfo;
+    if (!info || !info.map) return "";
+
+    const entry =
+        info.map.get(promotionIdentity(student.admission_no, student.student_name)) ||
+        info.map.get("name:" + normalizeStudentName(student.student_name));
+
+    if (!entry || !(entry.opened > 0)) return "";
+
+    return formatAttendanceValue(entry.present, entry.opened);
+
+}
+
+/* The behaviour ratings come from the Scores sheet uploaded in Step 1C (they are
+   not saved online). Use the uploaded row of this class and session; if more
+   than one term is loaded, the latest term wins. */
+function cumulativeBehaviorFor(student, model) {
+
+    const wantClass = String(model.context.className || "").trim().toLowerCase();
+    const wantSession = String(model.context.session || "").trim();
+    const adm = normalizeStudentAdmissionNo(student.admission_no);
+    const name = normalizeStudentName(student.student_name);
+
+    let best = null;
+    let bestTermIndex = -1;
+
+    (Array.isArray(students) ? students : []).forEach(function (record) {
+
+        if (!record || !record.__behavior) return;
+        if (String(record["Class"] || "").trim().toLowerCase() !== wantClass) return;
+        if (String(record["Session"] || "").trim() !== wantSession) return;
+
+        const recordAdm = normalizeStudentAdmissionNo(record["Admission No"]);
+        const sameStudent = (adm && recordAdm)
+            ? adm === recordAdm
+            : normalizeStudentName(record["Student Name"]) === name;
+
+        if (!sameStudent) return;
+
+        const termIndex = ACADEMIC_TERMS.indexOf(String(record["Term"] || "").trim());
+
+        if (!best || termIndex > bestTermIndex) {
+            best = record;
+            bestTermIndex = termIndex;
+        }
+
+    });
+
+    return best
+        ? { ratings: best.__behavior, term: bestTermIndex >= 0 ? ACADEMIC_TERMS[bestTermIndex] : "" }
+        : { ratings: {}, term: "" };
+
+}
+
+/* Same domain tables as the term report. */
+function cumulativeBehaviorHtml(student, model, sectionHead) {
+
+    const found = cumulativeBehaviorFor(student, model);
+    const behavior = Object.assign({}, found.ratings);
+
+    /* Attendance is for the whole session, not the one term of the uploaded sheet. */
+    behavior.Attendance = cumulativeAttendanceText(student, model);
+
+    const domainTables = behavioralDomains.map(function (domain) {
+
+        const titleWidth = 16;
+        const traitWidth = (100 - titleWidth) / domain.traits.length;
+
+        let colGroup = `<col style="width:${titleWidth}%;">`;
+        let traitHeaders = `<th class="trait-title" style="font-size:8px;padding:2px 3px;">${escapeHTML(domain.name.toUpperCase())}</th>`;
+        let traitRatings = `<td class="trait-title" style="font-size:8px;padding:2px 3px;">Rating</td>`;
+
+        domain.traits.forEach(function (trait) {
+            const rating = behavior[trait] !== undefined && behavior[trait] !== null ? behavior[trait] : "";
+
+            colGroup += `<col style="width:${traitWidth}%;">`;
+            traitHeaders += `<th style="font-size:8px;padding:2px 3px;word-break:break-word;">${escapeHTML(trait)}</th>`;
+            traitRatings += `<td class="trait-rating">${escapeHTML(rating)}</td>`;
+        });
+
+        return `
+                <table class="behavior-table behavior-domain-table" style="margin-bottom:6px;width:100%;max-width:100%;table-layout:fixed;">
+                    <colgroup>${colGroup}</colgroup>
+                    <thead>
+                        <tr>${traitHeaders}</tr>
+                    </thead>
+                    <tbody>
+                        <tr>${traitRatings}</tr>
+                    </tbody>
+                </table>
+        `;
+
+    }).join("");
+
+    return `
+            <div class="behavior-section">
+                ${sectionHead("04", "Behavioural Development", "Rating scale: 1 = Lowest &nbsp;•&nbsp; 5 = Highest")}
+                ${domainTables}
+                <p style="font-size:0.8em; margin:4px 0;">
+                    Attendance is for the whole session${found.term ? "; ratings are from the " + escapeHTML(found.term) : ""}.
+                </p>
+            </div>
+    `;
+
+}
+
+function cumulativePromotionNoteHtml(student, model, termsIncluded, termsRecorded) {
+
+    const verdicts = model && model.promotion;
+    const verdict = verdicts && verdicts.get ? verdicts.get(student) : null;
+
+    /* Only a student who does not meet the school's rules gets a note.
+       "Needs review" (missing data) is for the owner, not the parent. */
+    if (!verdict || verdict.status !== "repeat") return "";
+
+    const nextClass = promotionSettings().nextClass[model.context.className] || "";
+
+    const headline = nextClass === PROMOTION_GRADUATE
+        ? "Did not meet the requirements to graduate"
+        : (nextClass
+            ? "Did not meet the requirements for promotion to " + escapeHTML(nextClass)
+            : "Did not meet the promotion requirements");
+
+    const reasons = verdict.reasons.map(function (reason) {
+        return "<li>" + escapeHTML(reason) + "</li>";
+    }).join("");
+
+    return `
+        <div class="promotion-note" style="margin:10px 0;padding:8px 12px;border:2px solid #9b1c1c;border-radius:6px;background:#fdf0f0;color:#7a1414;-webkit-print-color-adjust:exact;print-color-adjust:exact;page-break-inside:avoid;">
+            <div style="font-weight:800;letter-spacing:0.5px;">PROMOTION STATUS: NOT PROMOTED</div>
+            <div style="margin-top:2px;">${headline}.</div>
+            ${reasons ? `<ul style="margin:4px 0 0 18px;padding:0;font-size:0.9em;">${reasons}</ul>` : ""}
+            ${termsRecorded < ACADEMIC_TERMS.length
+                ? `<div style="margin-top:4px;font-size:0.8em;">Based on the terms recorded so far (${escapeHTML(termsIncluded)}).</div>`
+                : ""}
+        </div>
+    `;
+
+}
+
 function createCumulativeReport(student, model) {
     const cumulativePhotoLayout = studentPhotoLayout(student.admission_no, student.student_name);
 
     const context = model.context;
     const comments = autoCommentsForCumulative(student);
     const average = student.cumulativeAverage;
+    const grade = average === null ? "" : getGrade(average);
+
+    /* Same report outlook as the term reports (Report Outlook picker).
+       Classic keeps the plain markup; the other outlooks add section
+       headings, comment cards and a footer, styled from style.css. */
+    const reportTemplateId = getReportTemplateId();
+    const isClassicOutlook = reportTemplateId === "classic";
+
+    const sectionHead = function (number, title, subtitle) {
+        if (isClassicOutlook) return "";
+        return (
+            '<div class="section-heading">' +
+                '<span class="section-number">' + number + '</span>' +
+                '<div><h2>' + title + '</h2>' +
+                (subtitle ? '<p>' + subtitle + '</p>' : "") +
+                '</div>' +
+            '</div>'
+        );
+    };
+
+    const termsRecorded = ACADEMIC_TERMS.filter(function (term, index) {
+        return student.termAverages[index] !== null;
+    }).length;
 
     const termsIncluded = ACADEMIC_TERMS
         .filter(function (term, index) { return student.termAverages[index] !== null; })
@@ -11545,8 +11724,52 @@ function createCumulativeReport(student, model) {
         `;
     }).join("");
 
+    const commentsHtml = isClassicOutlook
+        ? `
+            <div class="comments">
+                <p><strong>Class Teacher's Comment &amp; Signature:</strong></p>
+                <div class="comment-box">${escapeHTML(comments.teacher)}</div>
+                <p><strong>Principal's Comment &amp; Signature:</strong></p>
+                <div class="comment-box">${escapeHTML(comments.principal)}</div>
+            </div>
+        `
+        : `
+            <div class="comments">
+                ${sectionHead("05", "Assessment &amp; Comments")}
+
+                <div class="comment-grid">
+                    <div class="comment-card">
+                        <div class="comment-label">CLASS TEACHER'S COMMENT</div>
+                        <div class="comment-box">${escapeHTML(comments.teacher)}</div>
+                        <div class="signature-line">
+                            <span>Class Teacher</span>
+                            <span>Date</span>
+                        </div>
+                    </div>
+
+                    <div class="comment-card">
+                        <div class="comment-label">PRINCIPAL'S COMMENT</div>
+                        <div class="comment-box">${escapeHTML(comments.principal)}</div>
+                        <div class="signature-line">
+                            <span>Principal</span>
+                            <span>Date</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+    const footerHtml = isClassicOutlook
+        ? ""
+        : `
+            <div class="report-footer">
+                <span>Cumulative (Annual) Report</span>
+                <span>${escapeHTML(context.session)}</span>
+            </div>
+        `;
+
     return `
-        <div class="report cumulative-report" style="position:relative;">
+        <div class="report cumulative-report tpl-${reportTemplateId}" data-report-template="${reportTemplateId}" style="position:relative;">
             ${reportWatermarkHtml()}
 
             <div class="school-header">
@@ -11560,6 +11783,8 @@ function createCumulativeReport(student, model) {
                 <h2>CUMULATIVE (ANNUAL) REPORT SHEET</h2>
             </div>
 
+            ${sectionHead("01", "Student Information", "Personal and class details")}
+
             <div class="student-info">
                 <div><strong>Admission No:</strong> ${escapeHTML(student.admission_no || "")}</div>
                 <div><strong>Student Name:</strong> ${escapeHTML(student.student_name || "")}</div>
@@ -11571,7 +11796,19 @@ function createCumulativeReport(student, model) {
                 <div><strong>Class Size:</strong> ${model.students.length}</div>
             </div>
 
-            <table class="result-table">
+            ${sectionHead("02", "Academic Performance", "Term-by-term and cumulative results")}
+
+            <table class="result-table" style="width:100%;max-width:100%;table-layout:fixed;">
+                <colgroup>
+                    <col style="width:5%;">
+                    <col style="width:27%;">
+                    <col style="width:10%;">
+                    <col style="width:10%;">
+                    <col style="width:10%;">
+                    <col style="width:12%;">
+                    <col style="width:8%;">
+                    <col style="width:18%;">
+                </colgroup>
                 <thead>
                     <tr>
                         <th>No.</th>
@@ -11594,8 +11831,8 @@ function createCumulativeReport(student, model) {
                             return `<th>${formatCumulativeNumber(value)}</th>`;
                         }).join("")}
                         <th>${formatCumulativeNumber(average)}</th>
-                        <th>${average === null ? "" : getGrade(average)}</th>
-                        <th>${average === null ? "" : escapeHTML(getGradeRemark(getGrade(average)))}</th>
+                        <th>${grade}</th>
+                        <th>${average === null ? "" : escapeHTML(getGradeRemark(grade))}</th>
                     </tr>
                 </tfoot>
             </table>
@@ -11604,24 +11841,27 @@ function createCumulativeReport(student, model) {
                 Cumulative is the average of the terms with recorded scores.
             </p>
 
+            ${sectionHead("03", "Performance Summary")}
+
             <div class="summary"${cumulativePhotoLayout.style}>
                 <p><strong>Cumulative Average</strong> ${formatCumulativeNumber(average)}%</p>
                 <p><strong>Class Position</strong>
                     <span class="position-value">${formatPosition(student.position)}</span>
                 </p>
-                <p><strong>Overall Grade</strong> ${average === null ? "" : getGrade(average)}</p>
+                <p><strong>Overall Grade</strong> ${grade}</p>
 
                 ${cumulativePhotoLayout.html}
             </div>
 
-            ${gradeKeyHtml(average === null ? "" : getGrade(average))}
+            ${gradeKeyHtml(grade)}
 
-            <div class="comments">
-                <p><strong>Class Teacher's Comment &amp; Signature:</strong></p>
-                <div class="comment-box">${escapeHTML(comments.teacher)}</div>
-                <p><strong>Principal's Comment &amp; Signature:</strong></p>
-                <div class="comment-box">${escapeHTML(comments.principal)}</div>
-            </div>
+            ${cumulativePromotionNoteHtml(student, model, termsIncluded, termsRecorded)}
+
+            ${cumulativeBehaviorHtml(student, model, sectionHead)}
+
+            ${commentsHtml}
+
+            ${footerHtml}
 
         </div>
     `;
@@ -11979,6 +12219,12 @@ async function generateCumulativeReports(mode) {
         }
 
         cumulativeModel = model;
+
+        /* Attendance (all three terms) for the behavioural section and the promotion rules. */
+        model.attendanceInfo = await cumulativeLoadAttendance(model);
+
+        /* Promotion rules decide whether a "not promoted" note is printed. */
+        model.promotion = await promotionVerdictsForModel(model);
 
         /* Register (class-list) order for the printed batch. */
         let list = model.students.slice();
@@ -20450,6 +20696,85 @@ function promotionIdentity(admission, name) {
     return adm ? "adm:" + adm : "name:" + normalizeStudentName(name);
 }
 
+/* Attendance for a class across the three terms of a session.
+   Returns { map, failed } - map is keyed like promotionIdentity(). */
+async function promotionLoadAttendance(className, session) {
+
+    const map = new Map();
+    let failed = false;
+
+    for (const term of ACADEMIC_TERMS) {
+        const rows = await fetchAttendanceRows(className, session, term);
+        if (rows === null) { failed = true; continue; }
+        rows.forEach(function (row) {
+            const keys = [promotionIdentity(row.admission_no, row.student_name), "name:" + normalizeStudentName(row.student_name)];
+            const entry = keys.map(function (k) { return map.get(k); }).find(Boolean) || { present: 0, opened: 0 };
+            if (Number.isFinite(row.days_present)) entry.present += row.days_present;
+            if (Number.isFinite(row.days_opened)) entry.opened += row.days_opened;
+            keys.forEach(function (k) { map.set(k, entry); });
+        });
+    }
+
+    return { map: map, failed: failed };
+
+}
+
+/* True when the owner has saved promotion rules that apply to this class.
+   Until then the report sheet shows nothing about promotion. */
+function promotionRulesAreSet(className) {
+    const p = promotionSettings();
+    return !!p.rules.byClass[className] || Object.keys(p.rules.all).length > 0;
+}
+
+/* Judges every student of a cumulative model with the school's promotion
+   rules. Returns a Map (student object -> judge result), or null when no
+   rules have been set. Never throws: the report must still generate. */
+async function promotionVerdictsForModel(model) {
+
+    try {
+
+        const className = model.context.className;
+
+        if (!promotionRulesAreSet(className)) return null;
+
+        const rule = promotionRuleFor(className);
+
+        let attendance = new Map();
+        let attendanceFailed = false;
+
+        if (rule.minAttendance > 0) {
+            const loaded = model.attendanceInfo || await promotionLoadAttendance(className, model.context.session);
+            attendance = loaded.map;
+            attendanceFailed = loaded.failed;
+        }
+
+        const verdicts = new Map();
+
+        model.students.forEach(function (student) {
+
+            const keyA = promotionIdentity(student.admission_no, student.student_name);
+            const keyB = "name:" + normalizeStudentName(student.student_name);
+
+            verdicts.set(student, promotionJudge(rule, {
+                hasScores: true,
+                average: student.cumulativeAverage,
+                subjects: student.subjectRows.map(function (r) {
+                    return { subject: r.subject, cumulative: r.cumulative };
+                }),
+                attendance: attendanceFailed ? null : (attendance.get(keyA) || attendance.get(keyB) || null)
+            }));
+
+        });
+
+        return verdicts;
+
+    } catch (error) {
+        console.error("Promotion check for the report failed:", error);
+        return null;
+    }
+
+}
+
 async function promotionCheck() {
 
     if (promotionBusy) return;
@@ -20498,20 +20823,9 @@ async function promotionCheck() {
         });
 
         /* Attendance across the three terms */
-        const attendance = new Map();
-        let attendanceFailed = false;
-
-        for (const term of ACADEMIC_TERMS) {
-            const rows = await fetchAttendanceRows(className, fromSession, term);
-            if (rows === null) { attendanceFailed = true; continue; }
-            rows.forEach(function (row) {
-                const keys = [promotionIdentity(row.admission_no, row.student_name), "name:" + normalizeStudentName(row.student_name)];
-                const entry = keys.map(function (k) { return attendance.get(k); }).find(Boolean) || { present: 0, opened: 0 };
-                if (Number.isFinite(row.days_present)) entry.present += row.days_present;
-                if (Number.isFinite(row.days_opened)) entry.opened += row.days_opened;
-                keys.forEach(function (k) { attendance.set(k, entry); });
-            });
-        }
+        const attendanceResult = await promotionLoadAttendance(className, fromSession);
+        const attendance = attendanceResult.map;
+        const attendanceFailed = attendanceResult.failed;
 
         const rule = promotionRuleFor(className);
         const isGraduate = nextClass === PROMOTION_GRADUATE;
