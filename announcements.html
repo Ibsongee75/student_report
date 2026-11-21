@@ -17,6 +17,7 @@
     input[type=search] { width: 100%; padding: 12px; font-size: 1rem; border: 1px solid #b9c7c4; border-radius: 8px; }
     .school { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; background: #fff; border: 1px solid #dbe5e3; border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; cursor: pointer; font: inherit; color: inherit; }
     .school:active { background: #eaf4f2; }
+    .school .grow { flex: 1; min-width: 0; }
     .logo { width: 44px; height: 44px; border-radius: 8px; object-fit: contain; background: #f2f6f5; flex: none; }
     .logo-ph { width: 44px; height: 44px; border-radius: 8px; background: #e3eeec; display: flex; align-items: center; justify-content: center; font-size: 22px; flex: none; }
     .school strong { display: block; }
@@ -25,18 +26,31 @@
     .error { color: #b00020; }
     .back { background: none; border: none; color: #0b6b62; font-size: 1rem; padding: 4px 0 12px; cursor: pointer; font-weight: 600; }
     .head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+    .head .grow { flex: 1; min-width: 0; }
     .head h2 { margin: 0; font-size: 1.1rem; }
     .head small { color: #5b6e6b; }
     .ann h3 { margin: 0 0 4px; font-size: 1.02rem; }
     .ann .meta { font-size: .8rem; color: #5b6e6b; margin-bottom: 8px; }
     .ann .text { white-space: pre-wrap; word-wrap: break-word; line-height: 1.45; }
+    .ann.is-new { border-left: 5px solid #e53935; background: #fffafa; }
+    .badge-new { display: inline-block; background: #e53935; color: #fff; font-size: .68rem; font-weight: 700; letter-spacing: .04em; padding: 2px 7px; border-radius: 999px; margin-left: 6px; vertical-align: middle; }
+    .badge-count { flex: none; background: #e53935; color: #fff; font-size: .78rem; font-weight: 700; min-width: 24px; height: 24px; padding: 0 7px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; }
+    .section-title { font-size: .95rem; margin: 4px 0 8px; color: #35514d; }
+    .follow { flex: none; font: inherit; font-size: .85rem; font-weight: 600; padding: 8px 10px; border-radius: 8px; border: 1px solid #0b6b62; background: #fff; color: #0b6b62; cursor: pointer; }
+    .follow.on { background: #0b6b62; color: #fff; }
+    .hint { font-size: .82rem; color: #5b6e6b; margin: -6px 0 12px; }
     .back-bar { margin-bottom: 12px; }
     .back-button { display: inline-block; padding: 9px 14px; background: #fff; color: #0b6b62; border: 1px solid #b9c7c4; border-radius: 8px; font-weight: 600; text-decoration: none; }
     .back-button:active { background: #eaf4f2; }
     .hidden { display: none; }
+    #toast { position: fixed; left: 50%; top: 12px; transform: translate(-50%, -140%); transition: transform .3s; z-index: 50; width: calc(100% - 24px); max-width: 560px; background: #0b6b62; color: #fff; border-radius: 10px; padding: 12px 14px; box-shadow: 0 4px 16px rgba(0,0,0,.25); cursor: pointer; font-size: .95rem; }
+    #toast.show { transform: translate(-50%, 0); }
+    #toast strong { display: block; margin-bottom: 2px; }
 </style>
 </head>
 <body>
+
+<div id="toast" role="status" aria-live="polite"></div>
 
 <header>
     <h1>📢 School Announcements</h1>
@@ -53,6 +67,10 @@
 
     <!-- Step 1: search -->
     <section id="searchView">
+        <div id="mySchoolsBox" class="hidden">
+            <h2 class="section-title">🔔 My schools</h2>
+            <div id="mySchools"></div>
+        </div>
         <div class="card">
             <label for="schoolSearch">Search for your school</label>
             <input id="schoolSearch" type="search" placeholder="Type your school's name…" autocomplete="off">
@@ -64,6 +82,7 @@
     <section id="annView" class="hidden">
         <button class="back" id="backButton" type="button">← Choose another school</button>
         <div class="card head" id="schoolHead"></div>
+        <p class="hint" id="followHint"></p>
         <div id="annList"></div>
     </section>
 
@@ -88,6 +107,27 @@ const db = supabase.createClient(
 );
 
 const $ = function (id) { return document.getElementById(id); };
+const BASE_TITLE = document.title;
+
+/* ---------- small local storage helpers (never crash if blocked) ---------- */
+const FOLLOW_KEY = "ann_followed_" + WEBSITE_ID;   /* [{school_id, school_name, school_address, school_logo}] */
+const SEEN_KEY   = "ann_seen_" + WEBSITE_ID;       /* { school_id: ISO time of newest announcement already seen } */
+
+function loadJSON(key, fallback) {
+    try { const v = JSON.parse(localStorage.getItem(key)); return v || fallback; } catch (e) { return fallback; }
+}
+function saveJSON(key, value) {
+    try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) {}
+}
+
+let followed = loadJSON(FOLLOW_KEY, []);
+let seen     = loadJSON(SEEN_KEY, {});
+let unread   = {};              /* school_id -> array of new announcements */
+let currentSchool = null;       /* school being viewed, or null */
+const alerted = new Set();      /* announcement ids already announced this session */
+let firstCheckDone = false;
+
+function isFollowed(id) { return followed.some(function (s) { return s.school_id === id; }); }
 
 function safeImageSrc(value) {
     const v = String(value || "");
@@ -115,6 +155,139 @@ function showNote(container, text, isError) {
     p.className = "note" + (isError ? " error" : "");
     p.textContent = text;
     container.appendChild(p);
+}
+
+/* ---------- notifications ---------- */
+let toastTimer = null;
+function showToast(title, text, onClick) {
+    const t = $("toast");
+    t.innerHTML = "";
+    const s = document.createElement("strong");
+    s.textContent = title;
+    const d = document.createElement("div");
+    d.textContent = text;
+    t.appendChild(s); t.appendChild(d);
+    t.onclick = function () { t.classList.remove("show"); if (onClick) onClick(); };
+    t.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { t.classList.remove("show"); }, 8000);
+}
+
+async function askPermission() {
+    try {
+        /* Android app: native notifications if the plugin is installed */
+        const LN = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.LocalNotifications;
+        if (IS_ANDROID_APP && LN) { await LN.requestPermissions(); return; }
+        if ("Notification" in window && Notification.permission === "default") {
+            await Notification.requestPermission();
+        }
+    } catch (e) { console.warn(e); }
+}
+
+function systemNotify(school, a) {
+    try {
+        const LN = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.LocalNotifications;
+        if (IS_ANDROID_APP && LN) {
+            LN.schedule({ notifications: [{
+                id: Math.floor(Math.random() * 2000000000),
+                title: school.school_name,
+                body: a.title
+            }]});
+            return;
+        }
+        if ("Notification" in window && Notification.permission === "granted") {
+            const n = new Notification("📢 " + school.school_name, { body: a.title, tag: "ann-" + a.id });
+            n.onclick = function () { window.focus(); openSchool(school); n.close(); };
+        }
+    } catch (e) { console.warn(e); }
+}
+
+function totalUnread() {
+    return Object.keys(unread).reduce(function (n, k) { return n + unread[k].length; }, 0);
+}
+
+function refreshBadges() {
+    const n = totalUnread();
+    document.title = (n > 0 ? "(" + n + ") " : "") + BASE_TITLE;
+    renderMySchools();
+}
+
+/* ---------- "My schools" list on the search page ---------- */
+function renderMySchools() {
+    const box = $("mySchools");
+    $("mySchoolsBox").classList.toggle("hidden", followed.length === 0);
+    box.innerHTML = "";
+    followed.forEach(function (school) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "school";
+        btn.appendChild(logoNode(school.school_logo));
+        const info = document.createElement("div");
+        info.className = "grow";
+        const name = document.createElement("strong");
+        name.textContent = school.school_name;
+        info.appendChild(name);
+        const count = (unread[school.school_id] || []).length;
+        const small = document.createElement("small");
+        small.textContent = count > 0 ? count + " new announcement" + (count > 1 ? "s" : "") : "No new announcements";
+        info.appendChild(small);
+        btn.appendChild(info);
+        if (count > 0) {
+            const b = document.createElement("span");
+            b.className = "badge-count";
+            b.textContent = count;
+            btn.appendChild(b);
+        }
+        btn.addEventListener("click", function () { openSchool(school); });
+        box.appendChild(btn);
+    });
+}
+
+/* ---------- check followed schools for new announcements ---------- */
+let checking = false;
+async function checkAll() {
+    if (checking || followed.length === 0) { firstCheckDone = true; return; }
+    checking = true;
+    try {
+        for (const school of followed.slice()) {
+            const since = seen[school.school_id];
+            if (!since) continue;   /* never opened yet: nothing counts as new */
+
+            const { data, error } = await db
+                .from("announcements")
+                .select("id, title, created_at")
+                .eq("owner_user_id", school.school_id)
+                .eq("website_id", WEBSITE_ID)
+                .gt("created_at", since)
+                .order("created_at", { ascending: false })
+                .limit(20);
+            if (error || !data) continue;
+
+            if (currentSchool && currentSchool.school_id === school.school_id) {
+                if (data.length > 0) {
+                    data.forEach(function (a) { alerted.add(a.id); });
+                    await loadAnnouncements(school);   /* shows them and marks as seen */
+                    showToast(school.school_name, "📢 New: " + data[0].title);
+                    systemNotify(school, data[0]);
+                }
+                continue;
+            }
+
+            unread[school.school_id] = data;
+
+            const fresh = data.filter(function (a) { return !alerted.has(a.id); });
+            fresh.forEach(function (a) { alerted.add(a.id); });
+            if (fresh.length > 0) {
+                const msg = fresh.length === 1 ? fresh[0].title : fresh.length + " new announcements";
+                showToast("📢 " + school.school_name, msg, function () { openSchool(school); });
+                if (firstCheckDone) systemNotify(school, fresh[0]);
+            }
+        }
+    } finally {
+        checking = false;
+        firstCheckDone = true;
+        refreshBadges();
+    }
 }
 
 /* ---------- school search ---------- */
@@ -182,15 +355,12 @@ async function runSearch() {
 }
 
 /* ---------- announcements ---------- */
-async function openSchool(school) {
-    $("searchView").classList.add("hidden");
-    $("annView").classList.remove("hidden");
-    window.scrollTo(0, 0);
-
+function renderHead(school) {
     const head = $("schoolHead");
     head.innerHTML = "";
     head.appendChild(logoNode(school.school_logo));
     const info = document.createElement("div");
+    info.className = "grow";
     const h = document.createElement("h2");
     h.textContent = school.school_name;
     info.appendChild(h);
@@ -201,8 +371,38 @@ async function openSchool(school) {
     }
     head.appendChild(info);
 
+    const fb = document.createElement("button");
+    fb.type = "button";
+    fb.className = "follow" + (isFollowed(school.school_id) ? " on" : "");
+    fb.textContent = isFollowed(school.school_id) ? "🔔 Following" : "🔔 Notify me";
+    fb.addEventListener("click", async function () { await toggleFollow(school); renderHead(school); });
+    head.appendChild(fb);
+
+    $("followHint").textContent = isFollowed(school.school_id)
+        ? "You will be alerted when this school posts a new announcement."
+        : "Tap “Notify me” to be alerted when this school posts a new announcement.";
+}
+
+async function toggleFollow(school) {
+    if (isFollowed(school.school_id)) {
+        followed = followed.filter(function (s) { return s.school_id !== school.school_id; });
+        delete unread[school.school_id];
+    } else {
+        followed.push({
+            school_id: school.school_id,
+            school_name: school.school_name,
+            school_address: school.school_address || "",
+            school_logo: school.school_logo || ""
+        });
+        await askPermission();
+    }
+    saveJSON(FOLLOW_KEY, followed);
+    refreshBadges();
+}
+
+async function loadAnnouncements(school) {
     const list = $("annList");
-    showNote(list, "Loading announcements…", false);
+    const lastSeen = seen[school.school_id] || null;
 
     const { data, error } = await db
         .from("announcements")
@@ -220,15 +420,24 @@ async function openSchool(school) {
 
     if (!data || data.length === 0) {
         showNote(list, "No announcements from this school right now.", false);
+        seen[school.school_id] = new Date().toISOString();
+        saveJSON(SEEN_KEY, seen);
         return;
     }
 
     list.innerHTML = "";
     data.forEach(function (a) {
+        const isNew = lastSeen && new Date(a.created_at) > new Date(lastSeen);
         const card = document.createElement("article");
-        card.className = "card ann";
+        card.className = "card ann" + (isNew ? " is-new" : "");
         const t = document.createElement("h3");
         t.textContent = a.title;
+        if (isNew) {
+            const b = document.createElement("span");
+            b.className = "badge-new";
+            b.textContent = "NEW";
+            t.appendChild(b);
+        }
         const meta = document.createElement("div");
         meta.className = "meta";
         meta.textContent = "Posted " + new Date(a.created_at).toLocaleDateString(undefined,
@@ -241,15 +450,51 @@ async function openSchool(school) {
         card.appendChild(body);
         list.appendChild(card);
     });
+
+    /* everything on screen now counts as seen */
+    seen[school.school_id] = data[0].created_at;
+    saveJSON(SEEN_KEY, seen);
+    delete unread[school.school_id];
+    refreshBadges();
+}
+
+async function openSchool(school) {
+    currentSchool = school;
+    $("searchView").classList.add("hidden");
+    $("annView").classList.remove("hidden");
+    window.scrollTo(0, 0);
+    renderHead(school);
+    showNote($("annList"), "Loading announcements…", false);
+    await loadAnnouncements(school);
 }
 
 $("backButton").addEventListener("click", function () {
+    currentSchool = null;
     $("annView").classList.add("hidden");
     $("searchView").classList.remove("hidden");
     $("annList").innerHTML = "";
+    renderMySchools();
 });
 
+/* ---------- live updates ---------- */
+/* Instant: Supabase Realtime tells us the moment something is posted
+   (needs announcements-realtime.sql to be run once). */
+try {
+    db.channel("announcements-live")
+      .on("postgres_changes",
+          { event: "INSERT", schema: "public", table: "announcements", filter: "website_id=eq." + WEBSITE_ID },
+          function () { checkAll(); })
+      .subscribe();
+} catch (e) { console.warn("Realtime unavailable", e); }
+
+/* Backup: check again every minute, and whenever the page comes back into view */
+setInterval(checkAll, 60000);
+document.addEventListener("visibilitychange", function () { if (!document.hidden) checkAll(); });
+
+/* ---------- start ---------- */
 showNote($("schoolResults"), "Type at least 2 letters of your school's name.", false);
+renderMySchools();
+checkAll();
 </script>
 </body>
 </html>
