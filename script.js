@@ -1886,6 +1886,9 @@ function initializeCollapsibleSections() {
     /* Staff Access */
     safely(function () { srgCollapsibleCard(byId("staffManagementSection"), SRG_PROTECTED); });
 
+    /* Promotion */
+    safely(function () { srgCollapsibleCard(byId("promotionSection"), SRG_PROTECTED); });
+
     /* Manage Classes */
     safely(function () {
         srgCollapsibleBlock(
@@ -1934,6 +1937,8 @@ document.addEventListener(
         restoreAppData();
 
         createAutoCommentManager();
+
+        initializePromotionSection();
 
         initializeOnlineScoreEntry();
         initializeOnlineClassList();
@@ -3387,6 +3392,8 @@ function refreshClassLevelViews() {
         if (Array.isArray(schoolClasses) && schoolClasses.length > 0) {
             populateClassNameSelect();
         }
+
+        if (typeof promotionRefresh === "function") promotionRefresh();
 
     } catch (error) {
 
@@ -11467,6 +11474,8 @@ function populateClassNameSelect() {
 
     restoreSavedClassSelection();
     onClassContextChanged();
+
+    if (typeof promotionRefresh === "function") promotionRefresh();
 
 }
 
@@ -20008,3 +20017,743 @@ document.addEventListener("visibilitychange", function () {
 /* =========================================================
    END OF SCRIPT
    ========================================================= */
+
+
+/* =========================================================
+   PROMOTION  (end of session, school owner only)
+
+   - The owner sets, once, which class follows which (Step 1) and the
+     promotion rules (Step 2). Both are saved with the school profile
+     (reportSettings.promotion), so no new SQL table is needed.
+   - At the end of a session the owner picks a class and sees a preview:
+     each student is "Promote", "Repeat" or "Needs review" with the reason.
+     The owner can change any student before confirming.
+   - Confirming only ADDS students to the class list of the new session
+     (class_students). Nothing in the old session is changed or deleted.
+     Passport photos follow the student (they are keyed by Adm No / name).
+   ========================================================= */
+
+const PROMOTION_GRADUATE = "__graduate__";
+
+let promotionState = null;
+let promotionBusy = false;
+
+function promotionSettings() {
+    if (!reportSettings.promotion || typeof reportSettings.promotion !== "object") {
+        reportSettings.promotion = {};
+    }
+    const p = reportSettings.promotion;
+    if (!p.nextClass || typeof p.nextClass !== "object") p.nextClass = {};
+    if (!p.rules || typeof p.rules !== "object") p.rules = {};
+    if (!p.rules.all || typeof p.rules.all !== "object") p.rules.all = {};
+    if (!p.rules.byClass || typeof p.rules.byClass !== "object") p.rules.byClass = {};
+    return p;
+}
+
+function promotionNum(value, fallback, min, max) {
+    if (value === "" || value === null || value === undefined) return fallback;
+    const n = Number(value);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.min(max, Math.max(min, n));
+}
+
+function promotionNormalizeRule(raw) {
+    raw = raw || {};
+    const gradeE = Number(reportSettings.gradeE);
+    const base = Number.isFinite(gradeE) && gradeE > 0 ? gradeE : 40;
+    return {
+        minAverage: promotionNum(raw.minAverage, base, 0, 100),
+        subjectPassMark: promotionNum(raw.subjectPassMark, base, 0, 100),
+        minSubjectsPassed: promotionNum(raw.minSubjectsPassed, 0, 0, 100),
+        minAttendance: promotionNum(raw.minAttendance, 0, 0, 100),
+        compulsory: Array.isArray(raw.compulsory)
+            ? raw.compulsory.filter(function (s) { return typeof s === "string" && s; })
+            : []
+    };
+}
+
+function promotionRuleFor(className) {
+    const p = promotionSettings();
+    return promotionNormalizeRule(p.rules.byClass[className] || p.rules.all);
+}
+
+function promotionFmt(n) {
+    return (Math.round(Number(n) * 10) / 10).toString();
+}
+
+/* Pure decision for one student.
+   input = { hasScores, average, subjects:[{subject, cumulative}],
+             attendance: {present, opened} | null } */
+function promotionJudge(rule, input) {
+
+    const subjects = (input && input.subjects) || [];
+
+    if (!input || !input.hasScores || subjects.length === 0) {
+        return { status: "review", reasons: ["No scores saved"], passed: 0, total: 0, attendancePct: null };
+    }
+
+    const fails = [];
+    const missing = [];
+
+    const passed = subjects.filter(function (s) {
+        return s.cumulative !== null && s.cumulative !== undefined && s.cumulative >= rule.subjectPassMark;
+    }).length;
+
+    if (input.average === null || input.average === undefined || input.average < rule.minAverage) {
+        fails.push("Average " + (input.average === null || input.average === undefined ? "-" : promotionFmt(input.average)) +
+            " is below " + promotionFmt(rule.minAverage));
+    }
+
+    if (rule.minSubjectsPassed > 0 && passed < rule.minSubjectsPassed) {
+        fails.push("Passed " + passed + " subject(s), needs " + rule.minSubjectsPassed);
+    }
+
+    rule.compulsory.forEach(function (name) {
+        const key = normalizeStudentName(name);
+        const row = subjects.find(function (s) { return normalizeStudentName(s.subject) === key; });
+        if (!row || row.cumulative === null || row.cumulative === undefined) {
+            missing.push("No score in " + name);
+        } else if (row.cumulative < rule.subjectPassMark) {
+            fails.push(name + " " + promotionFmt(row.cumulative) + " is below " + promotionFmt(rule.subjectPassMark));
+        }
+    });
+
+    let attendancePct = null;
+
+    if (rule.minAttendance > 0) {
+        const att = input.attendance;
+        if (!att || !(att.opened > 0)) {
+            missing.push("Attendance not recorded");
+        } else {
+            attendancePct = (att.present / att.opened) * 100;
+            if (attendancePct < rule.minAttendance) {
+                fails.push("Attendance " + promotionFmt(attendancePct) + "% is below " + promotionFmt(rule.minAttendance) + "%");
+            }
+        }
+    } else if (input.attendance && input.attendance.opened > 0) {
+        attendancePct = (input.attendance.present / input.attendance.opened) * 100;
+    }
+
+    const status = fails.length ? "repeat" : (missing.length ? "review" : "promote");
+
+    return {
+        status: status,
+        reasons: fails.concat(missing),
+        passed: passed,
+        total: subjects.length,
+        attendancePct: attendancePct
+    };
+}
+
+function promotionClassNames() {
+    return (Array.isArray(schoolClasses) ? schoolClasses : []).map(function (c) { return c.class_name; });
+}
+
+function promotionSessionList() {
+    const defaultStart = Number(defaultAcademicSession().split("/")[0]);
+    const list = [];
+    for (let y = SESSION_LIST_START_YEAR; y <= defaultStart + 1; y++) list.push(y + "/" + (y + 1));
+    return list;
+}
+
+function promotionNextSession(session) {
+    const m = /^(\d{4})\/(\d{4})$/.exec(String(session || "").trim());
+    if (!m) return "";
+    return (Number(m[1]) + 1) + "/" + (Number(m[2]) + 1);
+}
+
+function promotionSetStatus(id, message, isError) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = message || "";
+    el.style.color = isError ? "#b00020" : "";
+}
+
+function initializePromotionSection() {
+
+    if (document.getElementById("promotionSection")) return;
+
+    const card = document.createElement("section");
+    card.id = "promotionSection";
+    card.className = "card";
+
+    card.innerHTML =
+        "<style>" +
+        "body.srg-staff-mode #promotionSection{display:none !important;}" +
+        "#promotionSection .promo-block{margin:12px 0;padding-top:8px;border-top:1px solid #ddd;}" +
+        "#promotionSection .promo-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0;}" +
+        "#promotionSection .promo-table-wrap{overflow-x:auto;margin-top:8px;}" +
+        "#promotionSection table{border-collapse:collapse;width:100%;font-size:13px;}" +
+        "#promotionSection th,#promotionSection td{border:1px solid #ccc;padding:5px;text-align:left;vertical-align:top;}" +
+        "#promotionSection .promo-field{display:block;margin:8px 0;}" +
+        "#promotionSection .promo-field input[type=number]{width:90px;}" +
+        "</style>" +
+        "<h2>Promotion</h2>" +
+        "<p>Set which class follows which and the promotion rules. At the end of the session, " +
+        "check a class and promote the students who meet the rules. Only the school owner sees this section.</p>" +
+
+        "<div class=\"promo-block\"><h3>1. Next class</h3>" +
+        "<p>Choose where each class's students go when they pass.</p>" +
+        "<div class=\"promo-table-wrap\"><table><thead><tr><th>Class</th><th>Passed students go to</th></tr></thead>" +
+        "<tbody id=\"promoNextBody\"></tbody></table></div>" +
+        "<p id=\"promoNextStatus\"></p></div>" +
+
+        "<div class=\"promo-block\"><h3>2. Promotion rules</h3>" +
+        "<div class=\"promo-row\"><label for=\"promoRuleScope\">Rules for</label>" +
+        "<select id=\"promoRuleScope\"></select></div>" +
+        "<label class=\"promo-field\" id=\"promoSameWrap\" style=\"display:none;\">" +
+        "<input type=\"checkbox\" id=\"promoRuleSame\"> Use the same rules as all classes</label>" +
+        "<div id=\"promoRuleFields\">" +
+        "<label class=\"promo-field\">Minimum cumulative average (%) " +
+        "<input type=\"number\" id=\"promoMinAverage\" min=\"0\" max=\"100\" step=\"0.1\"></label>" +
+        "<label class=\"promo-field\">A subject counts as passed from (%) " +
+        "<input type=\"number\" id=\"promoSubjectPass\" min=\"0\" max=\"100\" step=\"0.1\"></label>" +
+        "<label class=\"promo-field\">Minimum subjects passed (0 = not required) " +
+        "<input type=\"number\" id=\"promoMinSubjects\" min=\"0\" max=\"100\" step=\"1\"></label>" +
+        "<label class=\"promo-field\">Minimum attendance % (0 = not required) " +
+        "<input type=\"number\" id=\"promoMinAttendance\" min=\"0\" max=\"100\" step=\"1\"></label>" +
+        "<div class=\"promo-field\"><strong>Compulsory subjects</strong> (must be passed)" +
+        "<div id=\"promoCompulsory\"></div></div>" +
+        "</div>" +
+        "<button type=\"button\" id=\"promoSaveRules\">Save rules</button>" +
+        "<p id=\"promoRuleStatus\"></p></div>" +
+
+        "<div class=\"promo-block\"><h3>3. Promote students</h3>" +
+        "<div class=\"promo-row\"><label for=\"promoClass\">Class</label><select id=\"promoClass\"></select></div>" +
+        "<div class=\"promo-row\"><label for=\"promoFrom\">From session</label><select id=\"promoFrom\"></select></div>" +
+        "<div class=\"promo-row\"><label for=\"promoTo\">To session</label><select id=\"promoTo\"></select></div>" +
+        "<button type=\"button\" id=\"promoCheck\">Check students</button>" +
+        "<p id=\"promoRunStatus\"></p>" +
+        "<div id=\"promoResult\"></div>" +
+        "<button type=\"button\" id=\"promoApply\" style=\"display:none;\">Promote students</button>" +
+        "</div>";
+
+    const comments = document.getElementById("autoCommentManager");
+
+    if (comments && comments.parentNode) {
+        comments.parentNode.insertBefore(card, comments.nextSibling);
+    } else {
+        document.body.appendChild(card);
+    }
+
+    document.getElementById("promoRuleScope").addEventListener("change", promotionLoadRuleForm);
+    document.getElementById("promoRuleSame").addEventListener("change", promotionToggleRuleFields);
+    document.getElementById("promoSaveRules").addEventListener("click", promotionSaveRules);
+    document.getElementById("promoFrom").addEventListener("change", function () {
+        document.getElementById("promoTo").value = promotionNextSession(this.value);
+        promotionClearResult();
+    });
+    document.getElementById("promoTo").addEventListener("change", promotionClearResult);
+    document.getElementById("promoClass").addEventListener("change", promotionClearResult);
+    document.getElementById("promoCheck").addEventListener("click", promotionCheck);
+    document.getElementById("promoApply").addEventListener("click", promotionApply);
+
+    promotionRefresh();
+
+}
+
+function promotionClearResult() {
+    promotionState = null;
+    const result = document.getElementById("promoResult");
+    const apply = document.getElementById("promoApply");
+    if (result) result.innerHTML = "";
+    if (apply) apply.style.display = "none";
+    promotionSetStatus("promoRunStatus", "");
+}
+
+/* Redraws the class dropdowns, next-class table and rule form.
+   Called after the class list or school profile loads. */
+function promotionRefresh() {
+
+    const card = document.getElementById("promotionSection");
+    if (!card) return;
+
+    const classes = promotionClassNames();
+    const p = promotionSettings();
+
+    /* 1. Next class table */
+    const body = document.getElementById("promoNextBody");
+
+    if (body) {
+        if (classes.length === 0) {
+            body.innerHTML = "<tr><td colspan=\"2\"><em>Add classes in Manage Classes first.</em></td></tr>";
+        } else {
+            body.innerHTML = classes.map(function (cls) {
+                const current = p.nextClass[cls] || "";
+                const options =
+                    "<option value=\"\">- not set -</option>" +
+                    classes.filter(function (other) { return other !== cls; }).map(function (other) {
+                        return "<option value=\"" + escapeHTML(other) + "\"" +
+                            (current === other ? " selected" : "") + ">" + escapeHTML(other) + "</option>";
+                    }).join("") +
+                    "<option value=\"" + PROMOTION_GRADUATE + "\"" +
+                    (current === PROMOTION_GRADUATE ? " selected" : "") + ">Graduates (leaves the school)</option>";
+                return "<tr><td>" + escapeHTML(cls) + "</td><td><select data-promo-next=\"" +
+                    escapeHTML(cls) + "\">" + options + "</select></td></tr>";
+            }).join("");
+
+            body.querySelectorAll("select[data-promo-next]").forEach(function (select) {
+                select.addEventListener("change", function () {
+                    const cls = select.getAttribute("data-promo-next");
+                    const ps = promotionSettings();
+                    if (select.value) ps.nextClass[cls] = select.value;
+                    else delete ps.nextClass[cls];
+                    saveAppData();
+                    promotionSetStatus("promoNextStatus", "✅ Saved.");
+                    promotionClearResult();
+                });
+            });
+        }
+    }
+
+    /* 2. Rule scope + class dropdown */
+    const scope = document.getElementById("promoRuleScope");
+
+    if (scope) {
+        const previous = scope.value;
+        scope.innerHTML = "<option value=\"\">All classes</option>" + classes.map(function (cls) {
+            return "<option value=\"" + escapeHTML(cls) + "\">" + escapeHTML(cls) + "</option>";
+        }).join("");
+        scope.value = classes.indexOf(previous) !== -1 ? previous : "";
+    }
+
+    const runClass = document.getElementById("promoClass");
+
+    if (runClass) {
+        const previous = runClass.value;
+        runClass.innerHTML = "<option value=\"\">-- Select Class --</option>" + classes.map(function (cls) {
+            return "<option value=\"" + escapeHTML(cls) + "\">" + escapeHTML(cls) + "</option>";
+        }).join("");
+        runClass.value = classes.indexOf(previous) !== -1 ? previous : "";
+    }
+
+    /* Compulsory subject checkboxes */
+    const compulsory = document.getElementById("promoCompulsory");
+
+    if (compulsory) {
+        const subjects = Array.isArray(schoolSubjects) ? schoolSubjects : [];
+        compulsory.innerHTML = subjects.length === 0
+            ? "<em>No subjects added yet.</em>"
+            : subjects.map(function (subject, i) {
+                return "<label style=\"display:block;\"><input type=\"checkbox\" data-promo-subject=\"" +
+                    escapeHTML(subject) + "\" id=\"promoSub" + i + "\"> " + escapeHTML(subject) + "</label>";
+            }).join("");
+    }
+
+    /* Sessions */
+    const from = document.getElementById("promoFrom");
+    const to = document.getElementById("promoTo");
+
+    if (from && to) {
+        const sessions = promotionSessionList();
+        const fromPrev = from.value;
+        const toPrev = to.value;
+        const optionsHtml = sessions.map(function (s) {
+            return "<option value=\"" + s + "\">" + s + "</option>";
+        }).join("");
+        from.innerHTML = optionsHtml;
+        to.innerHTML = optionsHtml;
+        const chosen = fromPrev && sessions.indexOf(fromPrev) !== -1
+            ? fromPrev
+            : (typeof getSelectedSession === "function" && sessions.indexOf(getSelectedSession()) !== -1
+                ? getSelectedSession()
+                : defaultAcademicSession());
+        from.value = chosen;
+        const target = toPrev && sessions.indexOf(toPrev) !== -1 && toPrev !== chosen
+            ? toPrev
+            : promotionNextSession(chosen);
+        if (sessions.indexOf(target) !== -1) to.value = target;
+    }
+
+    promotionLoadRuleForm();
+
+}
+
+function promotionToggleRuleFields() {
+    const scope = document.getElementById("promoRuleScope");
+    const same = document.getElementById("promoRuleSame");
+    const fields = document.getElementById("promoRuleFields");
+    if (!scope || !same || !fields) return;
+    fields.style.display = scope.value && same.checked ? "none" : "";
+}
+
+function promotionLoadRuleForm() {
+
+    const scope = document.getElementById("promoRuleScope");
+    if (!scope) return;
+
+    const p = promotionSettings();
+    const cls = scope.value;
+    const sameWrap = document.getElementById("promoSameWrap");
+    const same = document.getElementById("promoRuleSame");
+
+    if (sameWrap) sameWrap.style.display = cls ? "" : "none";
+
+    const hasOwn = !!(cls && p.rules.byClass[cls]);
+    if (same) same.checked = !!cls && !hasOwn;
+
+    const rule = promotionNormalizeRule(cls && hasOwn ? p.rules.byClass[cls] : p.rules.all);
+
+    document.getElementById("promoMinAverage").value = rule.minAverage;
+    document.getElementById("promoSubjectPass").value = rule.subjectPassMark;
+    document.getElementById("promoMinSubjects").value = rule.minSubjectsPassed;
+    document.getElementById("promoMinAttendance").value = rule.minAttendance;
+
+    document.querySelectorAll("#promoCompulsory input[data-promo-subject]").forEach(function (box) {
+        const key = normalizeStudentName(box.getAttribute("data-promo-subject"));
+        box.checked = rule.compulsory.some(function (name) { return normalizeStudentName(name) === key; });
+    });
+
+    promotionToggleRuleFields();
+
+}
+
+function promotionSaveRules() {
+
+    if (staffContext) return;
+
+    const scope = document.getElementById("promoRuleScope");
+    const same = document.getElementById("promoRuleSame");
+    const p = promotionSettings();
+    const cls = scope.value;
+
+    if (cls && same.checked) {
+        delete p.rules.byClass[cls];
+        saveAppData();
+        promotionLoadRuleForm();
+        promotionSetStatus("promoRuleStatus", "✅ " + cls + " now uses the rules for all classes.");
+        promotionClearResult();
+        return;
+    }
+
+    const rule = promotionNormalizeRule({
+        minAverage: document.getElementById("promoMinAverage").value,
+        subjectPassMark: document.getElementById("promoSubjectPass").value,
+        minSubjectsPassed: document.getElementById("promoMinSubjects").value,
+        minAttendance: document.getElementById("promoMinAttendance").value,
+        compulsory: Array.from(document.querySelectorAll("#promoCompulsory input[data-promo-subject]:checked"))
+            .map(function (box) { return box.getAttribute("data-promo-subject"); })
+    });
+
+    if (cls) p.rules.byClass[cls] = rule;
+    else p.rules.all = rule;
+
+    saveAppData();
+    promotionLoadRuleForm();
+    promotionSetStatus("promoRuleStatus", "✅ Rules saved for " + (cls || "all classes") + ".");
+    promotionClearResult();
+
+}
+
+function promotionIdentity(admission, name) {
+    const adm = normalizeStudentAdmissionNo(admission);
+    return adm ? "adm:" + adm : "name:" + normalizeStudentName(name);
+}
+
+async function promotionCheck() {
+
+    if (promotionBusy) return;
+
+    if (staffContext) { alert("Only the school owner can use promotion."); return; }
+    if (!currentUserId) { promotionSetStatus("promoRunStatus", "❌ Please sign in first.", true); return; }
+    if (navigator.onLine === false) { promotionSetStatus("promoRunStatus", "❌ You are offline. Connect to the internet to run promotion.", true); return; }
+
+    const className = document.getElementById("promoClass").value;
+    const fromSession = document.getElementById("promoFrom").value;
+    const toSession = document.getElementById("promoTo").value;
+
+    if (!className) { promotionSetStatus("promoRunStatus", "Please select a class.", true); return; }
+    if (!fromSession || !toSession || fromSession === toSession) {
+        promotionSetStatus("promoRunStatus", "Choose two different sessions (from and to).", true);
+        return;
+    }
+
+    const p = promotionSettings();
+    const nextClass = p.nextClass[className] || "";
+
+    if (!nextClass) {
+        promotionSetStatus("promoRunStatus", "Set the next class for " + className + " in step 1 first.", true);
+        return;
+    }
+
+    promotionBusy = true;
+    document.getElementById("promoCheck").disabled = true;
+    promotionClearResult();
+    promotionSetStatus("promoRunStatus", "⏳ Checking " + className + " (" + fromSession + ")…");
+
+    try {
+
+        const roster = await fetchClassRoster(className, fromSession);
+
+        if (rosterFetchFailed) throw new Error("Could not load the class list.");
+        if (roster.length === 0) throw new Error("There is no class list for " + className + " in " + fromSession + ".");
+
+        const model = await buildCumulativeModel({ className: className, session: fromSession, term: "" });
+
+        const scored = new Map();
+        model.students.forEach(function (s) {
+            scored.set(promotionIdentity(s.admission_no, s.student_name), s);
+            const byName = "name:" + normalizeStudentName(s.student_name);
+            if (!scored.has(byName)) scored.set(byName, s);
+        });
+
+        /* Attendance across the three terms */
+        const attendance = new Map();
+        let attendanceFailed = false;
+
+        for (const term of ACADEMIC_TERMS) {
+            const rows = await fetchAttendanceRows(className, fromSession, term);
+            if (rows === null) { attendanceFailed = true; continue; }
+            rows.forEach(function (row) {
+                const keys = [promotionIdentity(row.admission_no, row.student_name), "name:" + normalizeStudentName(row.student_name)];
+                const entry = keys.map(function (k) { return attendance.get(k); }).find(Boolean) || { present: 0, opened: 0 };
+                if (Number.isFinite(row.days_present)) entry.present += row.days_present;
+                if (Number.isFinite(row.days_opened)) entry.opened += row.days_opened;
+                keys.forEach(function (k) { attendance.set(k, entry); });
+            });
+        }
+
+        const rule = promotionRuleFor(className);
+        const isGraduate = nextClass === PROMOTION_GRADUATE;
+
+        const rows = roster.map(function (student) {
+
+            const keyA = promotionIdentity(student.admission_no, student.student_name);
+            const keyB = "name:" + normalizeStudentName(student.student_name);
+            const scoreRow = scored.get(keyA) || scored.get(keyB) || null;
+            const att = attendance.get(keyA) || attendance.get(keyB) || null;
+
+            const judge = promotionJudge(rule, {
+                hasScores: !!scoreRow,
+                average: scoreRow ? scoreRow.cumulativeAverage : null,
+                subjects: scoreRow
+                    ? scoreRow.subjectRows.map(function (r) { return { subject: r.subject, cumulative: r.cumulative }; })
+                    : [],
+                attendance: att
+            });
+
+            return {
+                student: student,
+                average: scoreRow ? scoreRow.cumulativeAverage : null,
+                judge: judge,
+                decision: judge.status === "promote" ? (isGraduate ? "graduate" : "promote")
+                    : (judge.status === "repeat" ? "repeat" : "skip")
+            };
+
+        });
+
+        promotionState = {
+            className: className,
+            fromSession: fromSession,
+            toSession: toSession,
+            nextClass: nextClass,
+            rows: rows
+        };
+
+        promotionRender(attendanceFailed && rule.minAttendance > 0);
+
+        promotionSetStatus("promoRunStatus", "");
+
+    } catch (error) {
+        promotionSetStatus("promoRunStatus", "❌ " + (error && error.message ? error.message : "Could not check the class."), true);
+    } finally {
+        promotionBusy = false;
+        document.getElementById("promoCheck").disabled = false;
+    }
+
+}
+
+function promotionRender(attendanceWarning) {
+
+    const state = promotionState;
+    const result = document.getElementById("promoResult");
+    const apply = document.getElementById("promoApply");
+    if (!state || !result) return;
+
+    const isGraduate = state.nextClass === PROMOTION_GRADUATE;
+    const goLabel = isGraduate ? "Graduate" : "Promote to " + state.nextClass;
+    const goValue = isGraduate ? "graduate" : "promote";
+
+    const counts = { promote: 0, repeat: 0, review: 0 };
+    state.rows.forEach(function (r) { counts[r.judge.status]++; });
+
+    const rule = promotionRuleFor(state.className);
+
+    let html =
+        "<p><strong>" + escapeHTML(state.className) + " " + escapeHTML(state.fromSession) + "</strong>: " +
+        counts.promote + " meet the rules, " + counts.repeat + " do not, " + counts.review + " need review.</p>" +
+        "<p style=\"font-size:13px;\">Rules used: average at least " + promotionFmt(rule.minAverage) +
+        ", subject pass mark " + promotionFmt(rule.subjectPassMark) +
+        (rule.minSubjectsPassed ? ", at least " + rule.minSubjectsPassed + " subjects passed" : "") +
+        (rule.compulsory.length ? ", compulsory: " + escapeHTML(rule.compulsory.join(", ")) : "") +
+        (rule.minAttendance ? ", attendance at least " + promotionFmt(rule.minAttendance) + "%" : "") + ".</p>";
+
+    if (attendanceWarning) {
+        html += "<p style=\"color:#b00020;\">Some attendance records could not be loaded.</p>";
+    }
+
+    html += "<div class=\"promo-table-wrap\"><table><thead><tr>" +
+        "<th>#</th><th>Adm No</th><th>Name</th><th>Avg</th><th>Passed</th><th>Attend.</th><th>Result</th><th>Action</th>" +
+        "</tr></thead><tbody>";
+
+    state.rows.forEach(function (row, index) {
+
+        const j = row.judge;
+        const label = j.status === "promote" ? "Meets the rules" : (j.status === "repeat" ? "Does not meet" : "Needs review");
+        const reasonText = j.reasons.length ? "<br><small>" + escapeHTML(j.reasons.join("; ")) + "</small>" : "";
+
+        html += "<tr><td>" + (index + 1) + "</td>" +
+            "<td>" + escapeHTML(row.student.admission_no) + "</td>" +
+            "<td>" + escapeHTML(row.student.student_name) + "</td>" +
+            "<td>" + (row.average === null ? "-" : promotionFmt(row.average)) + "</td>" +
+            "<td>" + (j.total ? j.passed + "/" + j.total : "-") + "</td>" +
+            "<td>" + (j.attendancePct === null ? "-" : promotionFmt(j.attendancePct) + "%") + "</td>" +
+            "<td>" + label + reasonText + "</td>" +
+            "<td><select data-promo-row=\"" + index + "\">" +
+            "<option value=\"" + goValue + "\"" + (row.decision === goValue ? " selected" : "") + ">" + escapeHTML(goLabel) + "</option>" +
+            "<option value=\"repeat\"" + (row.decision === "repeat" ? " selected" : "") + ">Repeat " + escapeHTML(state.className) + "</option>" +
+            "<option value=\"skip\"" + (row.decision === "skip" ? " selected" : "") + ">Do not move</option>" +
+            "</select></td></tr>";
+
+    });
+
+    html += "</tbody></table></div>";
+
+    result.innerHTML = html;
+
+    result.querySelectorAll("select[data-promo-row]").forEach(function (select) {
+        select.addEventListener("change", function () {
+            state.rows[Number(select.getAttribute("data-promo-row"))].decision = select.value;
+        });
+    });
+
+    apply.textContent = "Promote students to " + state.toSession;
+    apply.style.display = "";
+
+}
+
+async function promotionApply() {
+
+    if (promotionBusy || !promotionState) return;
+
+    if (staffContext) { alert("Only the school owner can use promotion."); return; }
+    if (!currentUserId) { promotionSetStatus("promoRunStatus", "❌ Please sign in first.", true); return; }
+    if (navigator.onLine === false) { promotionSetStatus("promoRunStatus", "❌ You are offline. Connect to the internet and try again.", true); return; }
+
+    const state = promotionState;
+    const isGraduate = state.nextClass === PROMOTION_GRADUATE;
+
+    const movers = state.rows.filter(function (r) { return r.decision === "promote"; });
+    const repeaters = state.rows.filter(function (r) { return r.decision === "repeat"; });
+    const graduates = state.rows.filter(function (r) { return r.decision === "graduate"; });
+    const skipped = state.rows.length - movers.length - repeaters.length - graduates.length;
+
+    if (movers.length + repeaters.length === 0) {
+        promotionSetStatus("promoRunStatus", graduates.length
+            ? graduates.length + " student(s) graduate. There is nothing to add to a new class list."
+            : "No student is set to be promoted or to repeat.", graduates.length === 0);
+        return;
+    }
+
+    const lines = [];
+    if (movers.length) lines.push(movers.length + " student(s) to " + state.nextClass + " (" + state.toSession + ")");
+    if (repeaters.length) lines.push(repeaters.length + " student(s) repeating " + state.className + " (" + state.toSession + ")");
+    if (graduates.length) lines.push(graduates.length + " graduating");
+    if (skipped) lines.push(skipped + " not moved");
+
+    if (!confirm("Confirm promotion:\n\n" + lines.join("\n") +
+        "\n\nStudents are only added to the new session's class list. Nothing in " + state.fromSession + " is changed or deleted.")) {
+        return;
+    }
+
+    promotionBusy = true;
+    const applyButton = document.getElementById("promoApply");
+    applyButton.disabled = true;
+    promotionSetStatus("promoRunStatus", "⏳ Saving…");
+
+    try {
+
+        const groups = [];
+        if (movers.length) groups.push({ className: state.nextClass, rows: movers });
+        if (repeaters.length) groups.push({ className: state.className, rows: repeaters });
+
+        const now = new Date().toISOString();
+        const payloadAll = [];
+        const added = {};
+        const alreadyThere = {};
+
+        for (const group of groups) {
+
+            const existing = await fetchClassRoster(group.className, state.toSession);
+            if (rosterFetchFailed) throw new Error("Could not read the " + group.className + " list for " + state.toSession + ".");
+
+            const existingKeys = new Set(existing.map(function (s) { return rosterKey(s.admission_no, s.student_name); }));
+            const fresh = group.rows.filter(function (r) {
+                return !existingKeys.has(rosterKey(r.student.admission_no, r.student.student_name));
+            });
+
+            if (existing.length + fresh.length > TEMPLATE_STUDENT_ROWS) {
+                throw new Error(group.className + " (" + state.toSession + ") would have " + (existing.length + fresh.length) +
+                    " students; a class can have at most " + TEMPLATE_STUDENT_ROWS + ".");
+            }
+
+            added[group.className] = (added[group.className] || 0) + fresh.length;
+            alreadyThere[group.className] = (alreadyThere[group.className] || 0) + (group.rows.length - fresh.length);
+
+            fresh.forEach(function (r, i) {
+                payloadAll.push({
+                    owner_user_id: currentUserId,
+                    website_id: WEBSITE_ID,
+                    class_name: group.className,
+                    session: state.toSession,
+                    admission_no: r.student.admission_no,
+                    student_name: r.student.student_name,
+                    gender: r.student.gender,
+                    house: r.student.house,
+                    match_key: rosterKey(r.student.admission_no, r.student.student_name),
+                    sort_order: existing.length + i,
+                    updated_at: now
+                });
+            });
+
+        }
+
+        for (let i = 0; i < payloadAll.length; i += 200) {
+            const { error } = await supabaseClient
+                .from(CLASS_ROSTER_TABLE)
+                .upsert(payloadAll.slice(i, i + 200), {
+                    onConflict: "owner_user_id,website_id,class_name,session,match_key"
+                });
+            if (error) throw new Error(error.message || "Could not save the new class list.");
+        }
+
+        const parts = [];
+        Object.keys(added).forEach(function (cls) {
+            parts.push(added[cls] + " added to " + cls + " (" + state.toSession + ")" +
+                (alreadyThere[cls] ? ", " + alreadyThere[cls] + " already there" : ""));
+        });
+        if (graduates.length) parts.push(graduates.length + " graduating");
+
+        promotionState = null;
+        document.getElementById("promoResult").innerHTML = "";
+        applyButton.style.display = "none";
+        promotionSetStatus("promoRunStatus", "✅ Done. " + parts.join("; ") + ".");
+
+        /* If the class on screen is one that just changed, show the new list. */
+        try {
+            const context = getWorkflowContext(false);
+            if (context && context.className && context.session === state.toSession &&
+                (added[context.className] !== undefined)) {
+                classRoster = await fetchClassRoster(context.className, context.session);
+                renderStudentPreview();
+            }
+        } catch (ignore) { /* not important */ }
+
+    } catch (error) {
+        promotionSetStatus("promoRunStatus", "❌ " + (error && error.message ? error.message : "Promotion failed."), true);
+    } finally {
+        promotionBusy = false;
+        applyButton.disabled = false;
+    }
+
+}
