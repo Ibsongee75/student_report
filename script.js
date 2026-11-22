@@ -10811,22 +10811,48 @@ async function buildCumulativeModel(context) {
         return adm ? "adm:" + adm : "name:" + normalizeStudentName(name);
     };
 
+    /* Lookup tables so a saved score row can be matched to the CURRENT
+       class list by Adm No first, then by name (unique names only). */
+    const rosterByAdm = new Map();
+    const rosterByName = new Map();
+
     /* Class-list order first, so the report follows the register. */
     roster.forEach(function (student) {
-        studentMap.set(identity(student.admission_no, student.student_name), {
+        const key = identity(student.admission_no, student.student_name);
+        studentMap.set(key, {
             admission_no: student.admission_no,
             student_name: student.student_name,
             gender: student.gender || "",
             house: student.house || "",
             scores: {}
         });
+
+        const adm = normalizeStudentAdmissionNo(student.admission_no);
+        if (adm) rosterByAdm.set(adm, key);
+
+        const nameKey = normalizeStudentName(student.student_name);
+        if (!rosterByName.has(nameKey)) rosterByName.set(nameKey, []);
+        rosterByName.get(nameKey).push(key);
     });
+
+    const hasRoster = roster.length > 0;
 
     schoolSubjects.forEach(function (subject) {
         if (subjectOrder.indexOf(subject) === -1) subjectOrder.push(subject);
     });
 
-    (data || []).forEach(function (row) {
+    /* Rows saved WITHOUT an Adm No are applied first, so a later save of the
+       same student WITH an Adm No always overrides the older score. */
+    const orderedRows = (data || []).slice().sort(function (a, b) {
+        const aHas = normalizeStudentAdmissionNo(a.admission_no) ? 1 : 0;
+        const bHas = normalizeStudentAdmissionNo(b.admission_no) ? 1 : 0;
+        return aHas - bHas;
+    });
+
+    /* Fallback groups (only used when there is no class list). */
+    const looseByName = new Map();
+
+    orderedRows.forEach(function (row) {
 
         const parts = [row.first_ca, row.second_ca, row.exams].filter(function (v) {
             return v !== null && v !== undefined && v !== "";
@@ -10836,22 +10862,54 @@ async function buildCumulativeModel(context) {
 
         const total = parts.reduce(function (sum, v) { return sum + Number(v); }, 0);
 
-        let key = identity(row.admission_no, row.student_name);
+        const rowAdm = normalizeStudentAdmissionNo(row.admission_no);
+        const rowNameKey = normalizeStudentName(row.student_name);
+        let key = null;
 
-        /* A score saved before an Adm No was added still belongs to the same student. */
-        if (!studentMap.has(key)) {
-            const byName = "name:" + normalizeStudentName(row.student_name);
-            if (studentMap.has(byName)) key = byName;
+        /* 1) Same Adm No as a student in the current class list. */
+        if (rowAdm && rosterByAdm.has(rowAdm)) {
+            key = rosterByAdm.get(rowAdm);
         }
 
-        if (!studentMap.has(key)) {
-            studentMap.set(key, {
-                admission_no: row.admission_no || "",
-                student_name: cleanStudentName(row.student_name),
-                gender: "",
-                house: "",
-                scores: {}
-            });
+        /* 2) Same name as exactly one student in the class list
+              (covers scores saved before the Adm No was added). */
+        if (key === null) {
+            const candidates = rosterByName.get(rowNameKey) || [];
+            if (candidates.length === 1) key = candidates[0];
+        }
+
+        if (key === null) {
+
+            /* A class list exists: only its students are reported, so scores
+               left over for anyone not on it are ignored. */
+            if (hasRoster) return;
+
+            /* No class list: merge by Adm No, or by name when no Adm No. */
+            if (rowAdm) {
+                key = "adm:" + rowAdm;
+                const nameOnly = "name:" + rowNameKey;
+                if (studentMap.has(nameOnly) && !studentMap.has(key)) {
+                    /* Move the earlier no-Adm-No student under the Adm No. */
+                    const moved = studentMap.get(nameOnly);
+                    moved.admission_no = row.admission_no || "";
+                    studentMap.delete(nameOnly);
+                    studentMap.set(key, moved);
+                }
+            } else {
+                key = "name:" + rowNameKey;
+                if (looseByName.has(rowNameKey)) key = looseByName.get(rowNameKey);
+            }
+
+            if (!studentMap.has(key)) {
+                studentMap.set(key, {
+                    admission_no: row.admission_no || "",
+                    student_name: cleanStudentName(row.student_name),
+                    gender: "",
+                    house: "",
+                    scores: {}
+                });
+            }
+            looseByName.set(rowNameKey, key);
         }
 
         if (subjectOrder.indexOf(row.subject) === -1) subjectOrder.push(row.subject);
