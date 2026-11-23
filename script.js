@@ -8058,9 +8058,10 @@ function initializeStep1bContextSelectors() {
     const field = function (labelText, id) {
         return (
             '<label for="' + id + '" style="display:flex;flex-direction:column;' +
-            'gap:3px;font-weight:600;font-size:13px;min-width:140px;flex:1;">' +
-            labelText +
-            '<select id="' + id + '" style="font-weight:400;"></select></label>'
+'gap:3px;font-weight:600;font-size:13px;flex:1 1 0;min-width:0;">' +
+labelText +
+'<select id="' + id + '" style="font-weight:400;width:100%;min-width:0;' +
+'box-sizing:border-box;padding:8px 6px;"></select></label>'
         );
     };
 
