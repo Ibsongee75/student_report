@@ -7806,7 +7806,7 @@ function getWorkflowContext(required) {
     const term = getSelectedTerm();
 
     if (required && (!className || !session || !term)) {
-        alert("Please select the Academic Session, Term and Class in Step 1A first.");
+        alert("Please select the Academic Session, Term and Class in Step 1A or Step 1B first.");
         return null;
     }
 
@@ -7817,7 +7817,7 @@ function getWorkflowContext(required) {
 function contextLabel(context, includeTerm) {
 
     if (!context || !context.className) {
-        return "Select the Academic Session, Term and Class in Step 1A";
+        return "Select the Academic Session, Term and Class in Step 1A or Step 1B";
     }
 
     const parts = [context.className, context.session];
@@ -7859,6 +7859,7 @@ function saveAcademicContext() {
 /* Runs whenever Session, Term or Class changes (and after the class
    list of Step 0 is (re)loaded). */
 function onClassContextChanged() {
+    syncStep1bContextSelectors();
     refreshFormMasterSubjects();
     populateSubjectTemplateSelect();
     updateContextBanners();
@@ -7965,9 +7966,122 @@ function initializeAcademicWorkflow() {
         cumulativeStudentSelect.addEventListener("change", renderCumulativeStudent);
     }
 
+    initializeStep1bContextSelectors();
+
     updateContextBanners();
 
     initializeAttendanceSection();
+
+}
+
+/* =========================================================
+   STEP 1B: SESSION / TERM / CLASS SELECTORS
+
+   Step 1B (subject template) now has its own Academic Session,
+   Term and Class dropdowns, so a teacher can pick them right above
+   the subject without scrolling back to Step 1A. They are mirrored
+   with the Step 1A dropdowns: changing either set updates the other,
+   and everything else in the app keeps reading the one shared
+   context (getWorkflowContext).
+   ========================================================= */
+
+const STEP1B_CONTEXT_IDS = {
+    session: "step1bSessionSelect",
+    term: "step1bTermSelect",
+    className: "step1bClassSelect"
+};
+
+/* Copy the options of a Step 1A select into its Step 1B twin and
+   keep the same value selected. */
+function mirrorSelectOptions(source, target) {
+
+    if (!elementExists(source) || !target) return;
+
+    target.innerHTML = "";
+
+    Array.prototype.forEach.call(source.options, function (sourceOption) {
+        const option = document.createElement("option");
+        option.value = sourceOption.value;
+        option.textContent = sourceOption.textContent;
+        target.appendChild(option);
+    });
+
+    target.value = source.value;
+
+}
+
+/* Brings the Step 1B dropdowns in line with Step 1A. */
+function syncStep1bContextSelectors() {
+
+    const session = document.getElementById(STEP1B_CONTEXT_IDS.session);
+    const term = document.getElementById(STEP1B_CONTEXT_IDS.term);
+    const className = document.getElementById(STEP1B_CONTEXT_IDS.className);
+
+    mirrorSelectOptions(academicSessionSelect, session);
+    mirrorSelectOptions(academicTermSelect, term);
+    mirrorSelectOptions(classNameInput, className);
+
+}
+
+/* A change in Step 1B is copied to Step 1A, then the whole app is
+   told the context changed (same path as changing it in Step 1A). */
+function handleStep1bContextChange(event) {
+
+    const id = event.target.id;
+
+    if (id === STEP1B_CONTEXT_IDS.session && elementExists(academicSessionSelect)) {
+        academicSessionSelect.value = event.target.value;
+    }
+
+    if (id === STEP1B_CONTEXT_IDS.term && elementExists(academicTermSelect)) {
+        academicTermSelect.value = event.target.value;
+    }
+
+    if (id === STEP1B_CONTEXT_IDS.className && elementExists(classNameInput)) {
+        classNameInput.value = event.target.value;
+    }
+
+    onClassContextChanged();
+
+}
+
+function initializeStep1bContextSelectors() {
+
+    if (document.getElementById("step1bContextRow")) return;
+    if (!elementExists(subjectTemplateSelect)) return;
+
+    /* Put the row above the Subject dropdown (and its label, if any). */
+    let anchor = subjectTemplateSelect;
+    const label = document.querySelector('label[for="subjectTemplateSelect"]');
+    if (label) anchor = label;
+
+    const field = function (labelText, id) {
+        return (
+            '<label for="' + id + '" style="display:flex;flex-direction:column;' +
+            'gap:3px;font-weight:600;font-size:13px;min-width:140px;flex:1;">' +
+            labelText +
+            '<select id="' + id + '" style="font-weight:400;"></select></label>'
+        );
+    };
+
+    const row = document.createElement("div");
+    row.id = "step1bContextRow";
+    row.style.cssText =
+        "display:flex;flex-wrap:wrap;gap:10px;margin:0 0 12px;";
+    row.innerHTML =
+        field("Academic Session", STEP1B_CONTEXT_IDS.session) +
+        field("Term", STEP1B_CONTEXT_IDS.term) +
+        field("Class", STEP1B_CONTEXT_IDS.className);
+
+    anchor.insertAdjacentElement("beforebegin", row);
+
+    Object.keys(STEP1B_CONTEXT_IDS).forEach(function (key) {
+        document
+            .getElementById(STEP1B_CONTEXT_IDS[key])
+            .addEventListener("change", handleStep1bContextChange);
+    });
+
+    syncStep1bContextSelectors();
 
 }
 
@@ -12892,7 +13006,7 @@ function handleSubjectTemplateUpload(event) {
             if (!uploadSession || !uploadTerm) {
                 if (elementExists(subjectTemplateStatus)) {
                     subjectTemplateStatus.textContent =
-                        "❌ Select the Academic Session and Term in Step 1A first.";
+                        "❌ Select the Academic Session and Term in Step 1A or Step 1B first.";
                 }
                 return;
             }
