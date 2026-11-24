@@ -392,7 +392,31 @@
            PRINT
            ===================================================== */
 
-      @media print {
+      
+
+        /* ===== Extra report details (match generated report) ===== */
+        .x-photo { position:absolute; right:0; top:50%; transform:translateY(-50%);
+            width:72px; height:90px; object-fit:cover; border:1px solid #c8c8c8; border-radius:4px; background:#fff; }
+        .school-header { position:relative; }
+        .x-section { margin-top:18px; break-inside:avoid; page-break-inside:avoid; }
+        .x-section h4 { margin:0 0 8px; font-size:15px; }
+        .x-section small { opacity:.75; }
+        .x-grade-key { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:6px; }
+        .x-grade-key div { border:1px solid #bbb; border-radius:6px; padding:6px 8px; font-size:13px; }
+        .x-grade-key div.is-current { border-color:#1d4ed8; background:#eff6ff; }
+        .x-grade-key strong { display:block; font-size:16px; }
+        .x-grade-key em { display:block; font-style:normal; opacity:.75; }
+        .x-behaviour { width:100%; border-collapse:collapse; margin-bottom:8px; font-size:12px; }
+        .x-behaviour th, .x-behaviour td { border:1px solid #bbb; padding:4px; text-align:center; }
+        .x-behaviour th:first-child, .x-behaviour td:first-child { text-align:left; font-weight:700; }
+        .x-fees { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:8px; }
+        .x-fees div { border:1px solid #999; border-radius:6px; padding:8px 10px; }
+        .x-fees span { display:block; font-size:11px; text-transform:uppercase; letter-spacing:.4px; opacity:.75; }
+        .x-fees strong { font-size:16px; }
+        @media print { .x-photo { print-color-adjust:exact; -webkit-print-color-adjust:exact; } }
+    </style>
+
+    <style id="printStyles" media="print">
 
     @page {
         size: A4 portrait;
@@ -612,7 +636,37 @@
     * {
         box-shadow: none !important;
     }
-}
+
+    /* ===== One-page fit: compact the extra report sections ===== */
+    #printFit {
+        height: calc(var(--print-h, 0) * 1px);
+        overflow: hidden;
+        break-inside: avoid;
+        page-break-inside: avoid;
+    }
+    #printFit:not([data-fit]) { height: auto; overflow: visible; }
+
+    #resultArea {
+        transform: scale(var(--print-zoom, 1));
+        transform-origin: 0 0;
+        width: calc(100% / var(--print-zoom, 1)) !important;
+    }
+
+    .x-photo { width: 52px; height: 65px; }
+    .x-section { margin-top: 7px; }
+    .x-section h4 { margin: 0 0 4px; font-size: 10px; }
+    .x-section small { font-size: 8px; }
+    .x-grade-key { grid-template-columns: repeat(auto-fit, minmax(70px, 1fr)); gap: 3px; }
+    .x-grade-key div { padding: 3px 5px; font-size: 8px; border-radius: 4px; }
+    .x-grade-key strong { font-size: 10px; }
+    .x-behaviour { font-size: 8px; margin-bottom: 4px; table-layout: auto; }
+    .x-behaviour th, .x-behaviour td { padding: 2px 3px; font-size: 8px; width: auto; }
+    .x-behaviour th:first-child, .x-behaviour td:first-child { width: 14%; }
+    .x-fees { grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 4px; }
+    .x-fees div { padding: 4px 6px; border-radius: 4px; }
+    .x-fees span { font-size: 7px; }
+    .x-fees strong { font-size: 10px; }
+    thead th small { font-size: 7px; }
     </style>
 </head>
 
@@ -750,6 +804,7 @@
          RESULT OUTPUT
          ===================================================== -->
 
+    <div id="printFit">
     <section
         id="resultArea"
         class="card"
@@ -976,7 +1031,7 @@
     type="button"
     class="print-button"
     id="printResultButton"
-    onclick="window.print()"
+    onclick="printResultPage()"
 >
     🖨️ Print Result
 </button>
@@ -993,6 +1048,7 @@
         </div>
 
     </section>
+    </div>
 
 
     <div class="footer">
@@ -1054,7 +1110,7 @@ WEBSITE ID
 
 THIS COPY IS FOR:
 
-student_report
+ReportSheet
 ibsongee75
 =========================================================
 */
@@ -1090,6 +1146,102 @@ const resultArea =
     document.getElementById(
         "resultArea"
     );
+
+
+/* window.print() does nothing in the Android app's WebView, so inside the
+   app the native PrintPlugin opens Android's print dialog instead
+   (choose "Save as PDF" there). Browsers keep using window.print(). */
+/* =====================================================
+   ONE-PAGE PRINT
+   Shrinks the result so it always prints on a single A4 page,
+   however many subjects / sections it holds.
+===================================================== */
+var PRINT_PAGE_W_PX = (210 - 16) * 96 / 25.4;   /* A4 minus 8mm margins */
+var PRINT_PAGE_H_PX = (297 - 16 - 3) * 96 / 25.4;
+
+function fitResultToOnePage() {
+
+    var ps = document.getElementById("printStyles");
+    var fit = document.getElementById("printFit");
+    var root = document.documentElement;
+
+    if (!ps || !fit || !resultArea) return;
+
+    if (resultArea.style.display === "none") return;
+
+    var oldBodyWidth = document.body.style.width;
+
+    /* Apply the print rules for a moment (no paint happens) and measure. */
+    fit.removeAttribute("data-fit");
+    ps.media = "all";
+    document.body.style.width = PRINT_PAGE_W_PX + "px";
+
+    function printedHeight(zoom) {
+        root.style.setProperty("--print-zoom", String(zoom));
+        return resultArea.offsetHeight * zoom;
+    }
+
+    var zoom = 1;
+
+    if (printedHeight(1) > PRINT_PAGE_H_PX) {
+
+        var low = 0.25, high = 1;
+
+        for (var i = 0; i < 14; i++) {
+            var mid = (low + high) / 2;
+            if (printedHeight(mid) <= PRINT_PAGE_H_PX) low = mid; else high = mid;
+        }
+
+        zoom = low;
+    }
+
+    var finalHeight = printedHeight(zoom);
+
+    root.style.setProperty("--print-h", String(Math.ceil(finalHeight)));
+    fit.setAttribute("data-fit", "1");
+
+    document.body.style.width = oldBodyWidth;
+    ps.media = "print";
+}
+
+function resetPrintFit() {
+    var fit = document.getElementById("printFit");
+    if (fit) fit.removeAttribute("data-fit");
+    document.documentElement.style.removeProperty("--print-zoom");
+    document.documentElement.style.removeProperty("--print-h");
+}
+
+window.addEventListener("beforeprint", fitResultToOnePage);
+window.addEventListener("afterprint", resetPrintFit);
+
+
+/* window.print() does nothing in the Android app's WebView, so inside the
+   app the native PrintPlugin opens Android's print dialog instead
+   (choose "Save as PDF" there). Browsers keep using window.print(). */
+function printResultPage() {
+
+    fitResultToOnePage();
+
+    const cap = window.Capacitor;
+    const isApp = !!(cap && typeof cap.isNativePlatform === "function" && cap.isNativePlatform());
+
+    if (!isApp) {
+        window.print();
+        return;
+    }
+
+    const plugin = cap.Plugins && cap.Plugins.PrintPlugin;
+
+    if (!plugin) {
+        alert("Printing is not available in this version of the app. Please install the latest version.");
+        return;
+    }
+
+    plugin.print({ name: "Student_Result" }).catch(function (error) {
+        alert("Could not open the print dialog: " + (error && error.message ? error.message : error));
+    });
+
+}
 
 
 const printResultButton =
@@ -1268,7 +1420,7 @@ function applyResultMode(isCumulative) {
         if (el) el.textContent = labels[id];
     });
     var positionHead = document.getElementById("thSubjectPosition");
-    if (positionHead) positionHead.style.display = isCumulative ? "none" : "";
+    if (positionHead) { positionHead.textContent = "Position"; positionHead.style.display = isCumulative ? "none" : ""; }
     var attendance = document.getElementById("resultAttendance");
     if (attendance && attendance.parentNode) {
         attendance.parentNode.style.display = isCumulative ? "none" : "";
@@ -1301,6 +1453,201 @@ function renderCumulativeFooter(subjects, isCumulative) {
         row.appendChild(cell);
     });
     foot.appendChild(row);
+}
+
+/* =====================================================
+   EXTRA REPORT DETAILS (house, photo, subject average/remark,
+   overall total/grade, grading key, behaviour, fees).
+   Only shown when the published result carries them.
+===================================================== */
+function renderExtraDetails(data, subjects, isCumulative) {
+
+    document.querySelectorAll(".x-dyn").forEach(function (el) { el.remove(); });
+
+    var extra = data.extra;
+    if (!extra || typeof extra !== "object") return;
+
+    function el(tag, cls, text) {
+        var node = document.createElement(tag);
+        if (cls) node.className = cls + " x-dyn";
+        else node.className = "x-dyn";
+        if (text !== undefined && text !== null) node.textContent = text;
+        return node;
+    }
+    function has(v) { return v !== undefined && v !== null && v !== ""; }
+    function naira(n) { return "\u20A6" + Number(n).toLocaleString("en-NG", { maximumFractionDigits: 2 }); }
+
+    /* Passport photo */
+    var header = document.querySelector("#resultArea .school-header");
+    if (header && has(extra.student_photo)) {
+        var img = el("img", "x-photo");
+        img.alt = "Student passport photograph";
+        img.src = extra.student_photo;
+        header.appendChild(img);
+    }
+
+    /* House */
+    var info = document.querySelector("#resultArea .student-information");
+    if (info && has(extra.house)) {
+        var box = el("div", "info-box");
+        var label = document.createElement("strong"); label.textContent = "House";
+        var val = document.createElement("span"); val.textContent = extra.house;
+        box.appendChild(label); box.appendChild(val);
+        info.appendChild(box);
+    }
+
+    if (isCumulative) return;
+
+    /* Subject table: marks out of, average, remark */
+    var marks = extra.marks || {};
+    function setHead(id, text, max) {
+        var th = document.getElementById(id);
+        if (!th) return;
+        th.textContent = text;
+        if (has(max)) {
+            th.appendChild(document.createElement("br"));
+            var sm = document.createElement("small");
+            sm.textContent = max + " mks";
+            th.appendChild(sm);
+        }
+    }
+    setHead("thCa1", "1st CA", marks.ca1_max);
+    setHead("thCa2", "2nd CA", marks.ca2_max);
+    setHead("thExam", "Exam", marks.exam_max);
+    setHead("thTotal", "Total", marks.total_max);
+
+    var showAvg = subjects.some(function (s) { return has(s.subject_average); });
+    var showRemark = subjects.some(function (s) { return has(s.remark); });
+
+    var headRow = document.querySelector("#resultArea thead tr");
+    var posHead = document.getElementById("thSubjectPosition");
+    if (headRow) {
+        if (showAvg) {
+            var thAvg = el("th", "", "Subject Avg");
+            headRow.insertBefore(thAvg, posHead);
+        }
+        if (posHead) posHead.textContent = "Subject Pos.";
+        if (showRemark) headRow.appendChild(el("th", "", "Remark"));
+    }
+
+    var bodyRows = document.querySelectorAll("#subjectResultsBody tr");
+    bodyRows.forEach(function (row, i) {
+        var subject = subjects[i] || {};
+        var cells = row.children;
+        if (showAvg) {
+            var td = el("td", "", has(subject.subject_average) ? subject.subject_average : "\u2014");
+            row.insertBefore(td, cells[6] || null);
+        }
+        if (showRemark) row.appendChild(el("td", "", subject.remark || ""));
+    });
+
+    /* Overall total row */
+    var foot = document.getElementById("subjectResultsFoot");
+    if (foot && has(extra.overall_total)) {
+        var tr = el("tr");
+        var th1 = el("th", "", "OVERALL TOTAL");
+        th1.colSpan = 4;
+        var th2 = el("th", "", String(extra.overall_total));
+        th2.colSpan = 3 + (showAvg ? 1 : 0) + (showRemark ? 1 : 0);
+        tr.appendChild(th1); tr.appendChild(th2);
+        foot.appendChild(tr);
+    }
+
+    /* Summary boxes: overall total & grade */
+    var summary = document.querySelector("#resultArea .summary-information");
+    function addSummary(label, value) {
+        if (!summary || !has(value)) return;
+        var b = el("div", "summary-box");
+        var l = document.createElement("strong"); l.textContent = label;
+        var v = document.createElement("span"); v.textContent = value;
+        b.appendChild(l); b.appendChild(v);
+        summary.insertBefore(b, summary.firstChild);
+    }
+    addSummary("Overall Grade", extra.overall_grade);
+    addSummary("Overall Total", extra.overall_total);
+
+    /* Sections inserted after the summary, before comments */
+    var comments = document.querySelector("#resultArea .comments");
+    function addSection(title, subtitle, content) {
+        var sec = el("div", "x-section");
+        var h = document.createElement("h4"); h.textContent = title;
+        if (subtitle) {
+            var sm = document.createElement("small"); sm.textContent = "  " + subtitle;
+            h.appendChild(sm);
+        }
+        sec.appendChild(h); sec.appendChild(content);
+        return sec;
+    }
+
+    if (Array.isArray(extra.grade_key) && extra.grade_key.length) {
+        var gk = el("div", "x-grade-key");
+        extra.grade_key.forEach(function (row) {
+            var item = document.createElement("div");
+            if (row.grade === extra.overall_grade) item.className = "is-current";
+            var g = document.createElement("strong"); g.textContent = row.grade;
+            var r = document.createElement("span"); r.textContent = row.remark || "";
+            var m = document.createElement("em"); m.textContent = row.range || "";
+            item.appendChild(g); item.appendChild(r); item.appendChild(m);
+            gk.appendChild(item);
+        });
+        var gkSec = addSection("Grading Key", "(marks that earn each grade)", gk);
+        if (comments) comments.parentNode.insertBefore(gkSec, comments);
+    }
+
+    if (Array.isArray(extra.behaviour) && extra.behaviour.length) {
+        var wrap = el("div");
+        extra.behaviour.forEach(function (domain) {
+            var table = document.createElement("table");
+            table.className = "x-behaviour";
+            var thead = document.createElement("thead");
+            var hr = document.createElement("tr");
+            var first = document.createElement("th"); first.textContent = String(domain.name || "").toUpperCase();
+            hr.appendChild(first);
+            var rr = document.createElement("tr");
+            var rl = document.createElement("td"); rl.textContent = "Rating";
+            rr.appendChild(rl);
+            (domain.traits || []).forEach(function (t) {
+                var th = document.createElement("th"); th.textContent = t.name;
+                var td = document.createElement("td"); td.textContent = has(t.rating) ? t.rating : "";
+                hr.appendChild(th); rr.appendChild(td);
+            });
+            thead.appendChild(hr);
+            var tbody = document.createElement("tbody"); tbody.appendChild(rr);
+            table.appendChild(thead); table.appendChild(tbody);
+            wrap.appendChild(table);
+        });
+        var bSec = addSection("Behavioural Development", "Rating scale: 1 = Lowest \u2022 5 = Highest", wrap);
+        if (comments) comments.parentNode.insertBefore(bSec, comments);
+    }
+
+    /* Fees & next term, after comments */
+    var fees = extra.fees;
+    if (fees && comments) {
+        var cards = [];
+        function card(label, value, color) {
+            var d = document.createElement("div");
+            var s = document.createElement("span"); s.textContent = label;
+            var b = document.createElement("strong"); b.textContent = value;
+            if (color) b.style.color = color;
+            d.appendChild(s); d.appendChild(b);
+            cards.push(d);
+        }
+        if (Number(fees.outstanding_balance) > 0) card("Outstanding balance", naira(fees.outstanding_balance), "#b91c1c");
+        else if (fees.fully_paid) card("School fees", "Fully paid \u2713", "#15803d");
+        if (has(fees.next_term_begins)) {
+            var d = new Date(fees.next_term_begins + "T00:00:00");
+            card("Next term begins", isNaN(d) ? fees.next_term_begins :
+                d.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" }));
+        }
+        if (has(fees.next_term_fee)) card("Next term fees", naira(fees.next_term_fee));
+        if (has(fees.total_at_resumption)) card("Total to pay at resumption", naira(fees.total_at_resumption), "#1d4ed8");
+        if (cards.length) {
+            var grid = el("div", "x-fees");
+            cards.forEach(function (c) { grid.appendChild(c); });
+            var fSec = addSection("Fees & Next Term", "", grid);
+            comments.parentNode.insertBefore(fSec, comments.nextSibling);
+        }
+    }
 }
 
 function displayResult(
@@ -1530,6 +1877,8 @@ function displayResult(
         }
     );
 
+
+    renderExtraDetails(data, subjects, isCumulative);
 
     /*
      * SHOW RESULT
@@ -1822,7 +2171,6 @@ newCheckButton.addEventListener(
 );
 
 </script>
-  <script src="native-app.js?v=1"></script>
 
 </body>
 </html>

@@ -1091,6 +1091,57 @@
         if (code) finishResetFromEmail(code);
     })();
 
+    /* ------------------------------------------------------
+       Outstanding balances for the generated reports.
+       Adds up the same ledger the Fees area uses (earlier terms of the
+       session + this term's fees - payments; waivers count as paid;
+       cancelled payments are ignored). Owner only - staff accounts and
+       any failure simply return {}, so report generation never breaks.
+       ------------------------------------------------------ */
+    async function balancesForReports(className, session, term, matchKeys) {
+        try {
+            if (!isOwner() || typeof currentUserId === "undefined" || !currentUserId) return {};
+            if (!className || !session || !term || !matchKeys || !matchKeys.length) return {};
+
+            async function readClassRows(table, columns) {
+                const rows = [];
+                for (let from = 0; ; from += 1000) {
+                    const res = await supabaseClient.from(table).select(columns)
+                        .eq("owner_user_id", currentUserId).eq("website_id", WEBSITE_ID)
+                        .eq("class_name", className).eq("session", session)
+                        .range(from, from + 999);
+                    if (res.error) throw res.error;
+                    (res.data || []).forEach(function (r) { rows.push(r); });
+                    if (!res.data || res.data.length < 1000) break;
+                }
+                return rows;
+            }
+
+            const items = await readClassRows("fee_items", "term, amount");
+            const payments = await readClassRows("fee_payments", "match_key, term, amount, voided");
+
+            /* No fees set and nothing paid for this class: show nothing. */
+            if (!items.length && !payments.length) return {};
+
+            const ledger = computeLedger(
+                matchKeys.map(function (k) { return { match_key: k }; }),
+                items, payments, term
+            );
+
+            const out = {};
+            ledger.forEach(function (row) {
+                out[row.student.match_key] = {
+                    carry: row.carry, due: row.due, paid: row.paid, balance: row.balance
+                };
+            });
+            return out;
+        } catch (e) {
+            console.warn("Fee balances unavailable:", e);
+            return {};
+        }
+    }
+
     /* Call SchoolFees.open() from your own button if you prefer. */
     window.SchoolFees = { open: open, _test: { computeLedger: computeLedger, nairaInWords: nairaInWords } };
+    window.SRG_FEES = { balancesForReports: balancesForReports };
 })();
