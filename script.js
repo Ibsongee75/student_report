@@ -16872,6 +16872,84 @@ function loadPublishStudents() {
 }
 
 
+/* Extra report-sheet details (house, photo, totals, grade key, behaviour
+   ratings, fees) so the online sheet matches the generated report. */
+function buildPublishExtra(student, subjects, overallTotal, average, behavior) {
+
+    const firstCAMax = Number(reportSettings.firstCAMaximum) || 20;
+    const secondCAMax = Number(reportSettings.secondCAMaximum) || 20;
+    const examsMax = Number(reportSettings.examsMaximum) || 60;
+
+    const domains = (behavioralDomains || []).map(function (domain) {
+        return {
+            name: domain.name,
+            traits: domain.traits.map(function (trait) {
+                return {
+                    name: trait,
+                    rating: behavior[trait] !== undefined ? String(behavior[trait]) : ""
+                };
+            })
+        };
+    });
+
+    /* Fees & next term, same rules as feesNoticeHtml. */
+    const fees = reportSettings.nextTermFees || {};
+    const classKey = normalizeClassKey(student["Class"]);
+    let nextFee = null;
+
+    Object.keys(fees).forEach(function (name) {
+        if (normalizeClassKey(name) === classKey && Number(fees[name]) > 0) {
+            nextFee = Number(fees[name]);
+        }
+    });
+
+    let balanceInfo = null;
+    try {
+        const cached = feeBalanceCache.get(
+            feeCacheKey(
+                student["Session"],
+                student["Term"],
+                computeMatchKey(student["Admission No"], student["Student Name"])
+            )
+        );
+        if (cached) balanceInfo = cached;
+    } catch (e) { /* fees are optional */ }
+
+    const outstanding =
+        balanceInfo && Number(balanceInfo.balance) > 0
+            ? Number(balanceInfo.balance)
+            : 0;
+
+    let photo = "";
+    try {
+        photo = findStudentPhoto(student["Admission No"], student["Student Name"]) || "";
+    } catch (e) { photo = ""; }
+
+    return {
+        house: student["House"] || "",
+        student_photo: photo,
+        overall_total: Number(overallTotal.toFixed(2)),
+        overall_grade: getGrade(average),
+        marks: {
+            ca1_max: firstCAMax,
+            ca2_max: secondCAMax,
+            exam_max: examsMax,
+            total_max: firstCAMax + secondCAMax + examsMax
+        },
+        grade_key: getGradeKeyRows(),
+        behaviour: domains,
+        fees: {
+            outstanding_balance: outstanding,
+            fully_paid: !!balanceInfo && outstanding === 0,
+            has_balance_record: !!balanceInfo,
+            next_term_begins: reportSettings.nextTermResumption || "",
+            next_term_fee: nextFee,
+            total_at_resumption:
+                outstanding > 0 && nextFee !== null ? outstanding + nextFee : null
+        }
+    };
+}
+
 function getPublishResultData(student) {
 
     const subjects = [];
@@ -16926,10 +17004,11 @@ function getPublishResultData(student) {
         const total =
             firstCA + secondCA + exams;
 
-        const subjectPosition =
-            student[subjectName + " Position"] ??
-            student[subjectName + " position"] ??
-            "";
+        /* Same class statistics the printed report uses. */
+        const subjectStats =
+            getSubjectClassStatistics(student, subjectName);
+
+        const subjectGrade = getGrade(total);
 
         subjects.push({
             subject_name: subjectName,
@@ -16937,8 +17016,16 @@ function getPublishResultData(student) {
             ca2: secondCA,
             exam: exams,
             total: total,
-            grade: getGrade(total),
-            subject_position: subjectPosition
+            grade: subjectGrade,
+            remark: getGradeRemark(subjectGrade),
+            subject_average:
+                subjectStats.average === null
+                    ? ""
+                    : Number(subjectStats.average.toFixed(2)),
+            subject_position:
+                subjectStats.position === null
+                    ? ""
+                    : subjectStats.position
         });
 
         overallTotal += total;
@@ -17008,7 +17095,12 @@ function getPublishResultData(student) {
                 getReportComments(student).principal
         },
 
-        subjects: subjects
+        subjects: subjects,
+
+        /* Everything else the printed report shows. */
+        extra: buildPublishExtra(
+            student, subjects, overallTotal, average, behavior
+        )
 
     };
 
@@ -17143,46 +17235,63 @@ async function publishOneStudentResult(student) {
 
     try {
 
-        const { data, error } =
+        const publishParams = {
+            p_website_id: WEBSITE_ID,
+            p_school_name: resultData.school.name || null,
+            p_school_address: resultData.school.address || null,
+            p_school_logo_url: resultData.school.logo_url || null,
+            p_admission_no:
+                String(resultData.student.admission_no || "").trim(),
+            p_student_name: studentName,
+            p_gender: resultData.student.gender || null,
+            p_class_name: resultData.student.class_name || null,
+            p_session: session,
+            p_term: term,
+            p_average: Number(resultData.result.average) || 0,
+            p_position:
+                String(resultData.result.position ?? "").trim() === ""
+                    ? null
+                    : (isNaN(Number(resultData.result.position))
+                        ? null
+                        : Number(resultData.result.position)),
+            p_class_size:
+                Number(resultData.result.class_size) || null,
+            p_attendance: resultData.result.attendance || null,
+            p_teacher_comment: resultData.result.teacher_comment || null,
+            p_principal_comment: resultData.result.principal_comment || null,
+            p_subjects: (resultData.subjects || []).map(function (subject) {
+                return {
+                    subject_name: subject.subject_name || "",
+                    ca1: subject.ca1 ?? "",
+                    ca2: subject.ca2 ?? "",
+                    exam: subject.exam ?? "",
+                    total: subject.total ?? "",
+                    grade: subject.grade || "",
+                    remark: subject.remark || "",
+                    subject_average: subject.subject_average ?? "",
+                    subject_position: subject.subject_position ?? ""
+                };
+            })
+        };
+
+        /* Full report-sheet details. Needs the p_extra parameter added by
+           the SQL migration; if the server does not have it yet, fall
+           back to the original call so publishing never breaks. */
+        let { data, error } =
             await supabaseClient.rpc(
                 "publish_student_result",
-                {
-                    p_website_id: WEBSITE_ID,
-                    p_school_name: resultData.school.name || null,
-                    p_school_address: resultData.school.address || null,
-                    p_school_logo_url: resultData.school.logo_url || null,
-                    p_admission_no:
-                        String(resultData.student.admission_no || "").trim() ,
-                    p_student_name: studentName,
-                    p_gender: resultData.student.gender || null,
-                    p_class_name: resultData.student.class_name || null,
-                    p_session: session,
-                    p_term: term,
-                    p_average: Number(resultData.result.average) || 0,
-                    p_position:
-                        String(resultData.result.position ?? "").trim() === ""
-                            ? null
-                            : (isNaN(Number(resultData.result.position))
-                                ? null
-                                : Number(resultData.result.position)),
-                    p_class_size:
-                        Number(resultData.result.class_size) || null,
-                    p_attendance: resultData.result.attendance || null,
-                    p_teacher_comment: resultData.result.teacher_comment || null,
-                    p_principal_comment: resultData.result.principal_comment || null,
-                    p_subjects: (resultData.subjects || []).map(function (subject) {
-                        return {
-                            subject_name: subject.subject_name || "",
-                            ca1: subject.ca1 ?? "",
-                            ca2: subject.ca2 ?? "",
-                            exam: subject.exam ?? "",
-                            total: subject.total ?? "",
-                            grade: subject.grade || "",
-                            subject_position: subject.position ?? ""
-                        };
-                    })
-                }
+                Object.assign({}, publishParams, { p_extra: resultData.extra })
             );
+
+        if (
+            error &&
+            (error.code === "PGRST202" ||
+             /p_extra|could not find the function/i.test(error.message || ""))
+        ) {
+            console.warn("Server has no p_extra yet; publishing without extras.");
+            ({ data, error } =
+                await supabaseClient.rpc("publish_student_result", publishParams));
+        }
 
         if (error) {
             console.error(
