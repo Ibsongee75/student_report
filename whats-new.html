@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>What's New</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+    :root { --bg:#f4f6fb; --card:#fff; --text:#1f2937; --muted:#6b7280; --accent:#2563eb; --line:#e5e7eb; }
+    @media (prefers-color-scheme: dark) {
+        :root { --bg:#111827; --card:#1f2937; --text:#f3f4f6; --muted:#9ca3af; --accent:#60a5fa; --line:#374151; }
+    }
+    * { box-sizing: border-box; }
+    body { margin:0; background:var(--bg); color:var(--text);
+           font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    header { padding:16px; background:var(--accent); color:#fff; display:flex; align-items:center; gap:12px; }
+    header a { color:#fff; text-decoration:none; font-weight:600; }
+    header h1 { margin:0; font-size:20px; }
+    main { max-width:720px; margin:0 auto; padding:16px; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:12px;
+            padding:16px; margin-bottom:14px; }
+    .card.new { border-color:var(--accent); }
+    .meta { display:flex; flex-wrap:wrap; gap:8px; align-items:center;
+            color:var(--muted); font-size:13px; margin-bottom:6px; }
+    .tag { background:var(--accent); color:#fff; border-radius:999px; padding:2px 8px;
+           font-size:11px; font-weight:700; }
+    .card h2 { margin:0 0 8px; font-size:17px; }
+    .card p { margin:0; line-height:1.5; white-space:pre-wrap; }
+    #status { text-align:center; color:var(--muted); padding:30px 0; }
+</style>
+</head>
+<body>
+<header>
+    <a href="./" aria-label="Back">&larr; Back</a>
+    <h1>🆕 What&rsquo;s New</h1>
+</header>
+<main>
+    <div id="status">Loading updates…</div>
+    <div id="list"></div>
+</main>
+
+<script>
+/* Set this to "ibsongee75" on the second site. */
+var WEBSITE_ID = "ibsongee75";
+
+var SUPABASE_URL = "https://nzeddvcmabfodmvmgsyg.supabase.co";
+var SUPABASE_KEY = "sb_publishable_Iaro_sV4r31wPbLycRB4Eg_OCDBy2u3";
+var client = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+var SEEN_KEY = "srg_whatsnew_seen_" + WEBSITE_ID;
+
+function fmt(d) {
+    try {
+        return new Date(d).toLocaleDateString(undefined,
+            { year: "numeric", month: "short", day: "numeric" });
+    } catch (e) { return ""; }
+}
+
+function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;   /* textContent: safe, no HTML injection */
+    return e;
+}
+
+(async function () {
+    var status = document.getElementById("status");
+    var list = document.getElementById("list");
+
+    var seen = "";
+    try { seen = localStorage.getItem(SEEN_KEY) || ""; } catch (e) {}
+
+    var res = await client.from("app_updates")
+        .select("id,title,body,version_label,created_at")
+        .in("website_id", [WEBSITE_ID, "all"])
+        .eq("published", true)
+        .order("created_at", { ascending: false })
+        .limit(50);
+
+    if (res.error) {
+        status.textContent = "Could not load updates. Check your internet and try again.";
+        return;
+    }
+    if (!res.data.length) {
+        status.textContent = "No updates yet.";
+        return;
+    }
+
+    status.style.display = "none";
+
+    res.data.forEach(function (u) {
+        var isNew = !seen || new Date(u.created_at) > new Date(seen);
+        var card = el("div", "card" + (isNew ? " new" : ""));
+        var meta = el("div", "meta");
+        if (isNew) meta.appendChild(el("span", "tag", "NEW"));
+        meta.appendChild(el("span", "", fmt(u.created_at)));
+        if (u.version_label) meta.appendChild(el("span", "", u.version_label));
+        card.appendChild(meta);
+        card.appendChild(el("h2", "", u.title));
+        card.appendChild(el("p", "", u.body));
+        list.appendChild(card);
+    });
+
+    /* Opening this page marks everything as seen. */
+    try { localStorage.setItem(SEEN_KEY, res.data[0].created_at); } catch (e) {}
+})();
+</script>
+</body>
+</html>

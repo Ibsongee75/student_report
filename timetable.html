@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lesson Timetable</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+    :root { --bg:#f4f6fb; --card:#fff; --text:#1f2937; --muted:#6b7280; --accent:#2563eb; --line:#e5e7eb; }
+    @media (prefers-color-scheme: dark) {
+        :root { --bg:#111827; --card:#1f2937; --text:#f3f4f6; --muted:#9ca3af; --accent:#60a5fa; --line:#374151; }
+    }
+    * { box-sizing: border-box; }
+    body { margin:0; background:var(--bg); color:var(--text); font-family: system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+    header { padding:16px; background:var(--accent); color:#fff; display:flex; align-items:center; gap:12px; }
+    header a { color:#fff; text-decoration:none; font-weight:600; }
+    header h1 { margin:0; font-size:20px; }
+    main { max-width:1000px; margin:0 auto; padding:16px; }
+    .toolbar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
+    select, input, button { font:inherit; padding:8px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--text); }
+    button { cursor:pointer; background:var(--accent); color:#fff; border:0; font-weight:600; }
+    button.ghost { background:var(--card); color:var(--text); border:1px solid var(--line); }
+    .wrap { overflow-x:auto; background:var(--card); border:1px solid var(--line); border-radius:12px; }
+    table { border-collapse:collapse; width:100%; min-width:760px; }
+    th, td { border:1px solid var(--line); padding:4px; vertical-align:top; }
+    th { background:var(--bg); font-size:13px; }
+    td.time { width:130px; white-space:nowrap; }
+    td.time input { width:56px; padding:4px; font-size:12px; }
+    td.cell input { width:100%; padding:5px; font-size:13px; margin:1px 0; }
+    td.cell input.t { font-size:11px; color:var(--muted); }
+    td.x { width:34px; text-align:center; }
+    #status { margin:10px 0; min-height:20px; color:var(--muted); }
+    .ro input, .ro button.rm { pointer-events:none; }
+    .ro input { border-color:transparent; background:transparent; }
+    @media print {
+        header, .toolbar, #status, td.x, th.x { display:none !important; }
+        .wrap { border:0; } td.cell input, td.time input { border:0; }
+    }
+</style>
+</head>
+<body>
+<header>
+    <a href="./">&larr; Back</a>
+    <h1>🗓️ Lesson Timetable</h1>
+</header>
+<main>
+    <div id="msg" style="text-align:center;color:var(--muted);padding:30px 0">Loading…</div>
+    <div id="content" style="display:none">
+        <div class="toolbar">
+            <label for="classSel">Class:</label>
+            <select id="classSel"></select>
+            <button type="button" id="addPeriod" class="ghost">+ Add period</button>
+            <button type="button" id="saveBtn">Save</button>
+            <button type="button" id="printBtn" class="ghost">Print</button>
+        </div>
+        <div id="status"></div>
+        <div class="wrap" id="wrap"></div>
+        <p style="color:var(--muted);font-size:13px">Tip: type "Break" in each day of a break period. The small line under each lesson is for the teacher's name (optional).</p>
+    </div>
+</main>
+
+<datalist id="subjectList"></datalist>
+
+<script>
+/* Set to "ibsongee75" on the second site. */
+var WEBSITE_ID = "ibsongee75";
+var DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+
+var client = supabase.createClient(
+    "https://nzeddvcmabfodmvmgsyg.supabase.co",
+    "sb_publishable_Iaro_sV4r31wPbLycRB4Eg_OCDBy2u3"
+);
+
+var ownerId = null, readOnly = false, model = null, dirty = false;
+
+function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+}
+function setStatus(t) { document.getElementById("status").textContent = t || ""; }
+
+function defaultModel() {
+    var times = [["08:00","08:40"],["08:40","09:20"],["09:20","10:00"],["10:00","10:30"],
+                 ["10:30","11:10"],["11:10","11:50"],["11:50","12:30"],["12:30","13:10"]];
+    return { periods: times.map(function (t) { return { start: t[0], end: t[1] }; }), cells: {} };
+}
+
+function render() {
+    var wrap = document.getElementById("wrap");
+    wrap.innerHTML = "";
+    if (readOnly) wrap.classList.add("ro");
+    var table = el("table");
+    var head = el("tr");
+    head.appendChild(el("th", "", "Time"));
+    DAYS.forEach(function (d) { head.appendChild(el("th", "", d)); });
+    if (!readOnly) head.appendChild(el("th", "x", ""));
+    table.appendChild(head);
+
+    model.periods.forEach(function (p, pi) {
+        var tr = el("tr");
+        var tt = el("td", "time");
+        var a = el("input"); a.type = "time"; a.value = p.start;
+        var b = el("input"); b.type = "time"; b.value = p.end;
+        a.addEventListener("input", function () { p.start = a.value; dirty = true; });
+        b.addEventListener("input", function () { p.end = b.value; dirty = true; });
+        tt.appendChild(a); tt.appendChild(document.createTextNode(" – ")); tt.appendChild(b);
+        tr.appendChild(tt);
+
+        DAYS.forEach(function (d, di) {
+            var key = di + "-" + pi;
+            var c = model.cells[key] || {};
+            var td = el("td", "cell");
+            var s = el("input"); s.type = "text"; s.placeholder = "Subject";
+            s.setAttribute("list", "subjectList"); s.value = c.subject || "";
+            var t = el("input", "t"); t.type = "text"; t.placeholder = "Teacher"; t.value = c.teacher || "";
+            function upd() {
+                model.cells[key] = { subject: s.value.trim(), teacher: t.value.trim() };
+                dirty = true;
+            }
+            s.addEventListener("input", upd); t.addEventListener("input", upd);
+            td.appendChild(s); td.appendChild(t);
+            tr.appendChild(td);
+        });
+
+        if (!readOnly) {
+            var x = el("td", "x");
+            var rm = el("button", "ghost rm", "✕");
+            rm.type = "button"; rm.title = "Remove this period";
+            rm.addEventListener("click", function () { removePeriod(pi); });
+            x.appendChild(rm); tr.appendChild(x);
+        }
+        table.appendChild(tr);
+    });
+    wrap.appendChild(table);
+}
+
+function removePeriod(index) {
+    if (!confirm("Remove this period row?")) return;
+    model.periods.splice(index, 1);
+    var cells = {};
+    Object.keys(model.cells).forEach(function (k) {
+        var parts = k.split("-"), d = parts[0], p = Number(parts[1]);
+        if (p < index) cells[d + "-" + p] = model.cells[k];
+        else if (p > index) cells[d + "-" + (p - 1)] = model.cells[k];
+    });
+    model.cells = cells; dirty = true; render();
+}
+
+async function loadClass(name) {
+    setStatus("Loading…");
+    var r = await client.from("lesson_timetables").select("data")
+        .eq("owner_user_id", ownerId).eq("website_id", WEBSITE_ID).eq("class_name", name).maybeSingle();
+    if (r.error) { setStatus("Could not load this timetable."); model = defaultModel(); }
+    else model = (r.data && r.data.data && r.data.data.periods) ? r.data.data : defaultModel();
+    dirty = false; render();
+    setStatus(r.data ? "" : (readOnly ? "No timetable has been set for this class yet." : "New timetable – fill it in and press Save."));
+}
+
+async function save() {
+    var name = document.getElementById("classSel").value;
+    if (!name) return;
+    /* Drop empty cells so the saved data stays small. */
+    var clean = {};
+    Object.keys(model.cells).forEach(function (k) {
+        var c = model.cells[k];
+        if (c && (c.subject || c.teacher)) clean[k] = c;
+    });
+    model.cells = clean;
+    setStatus("Saving…");
+    var r = await client.from("lesson_timetables").upsert({
+        owner_user_id: ownerId, website_id: WEBSITE_ID, class_name: name,
+        data: model, updated_at: new Date().toISOString()
+    }, { onConflict: "owner_user_id,website_id,class_name" });
+    if (r.error) { console.error(r.error); setStatus("❌ Could not save. Have you run timetable.sql in Supabase?"); return; }
+    dirty = false; setStatus("✅ Saved.");
+}
+
+(async function () {
+    var msg = document.getElementById("msg");
+    try {
+        var sess = await client.auth.getSession();
+        var user = sess.data && sess.data.session && sess.data.session.user;
+        if (!user) { msg.textContent = "Please sign in on the home page first."; return; }
+
+        ownerId = user.id;
+        var st = await client.from("school_staff").select("owner_user_id, status")
+            .eq("staff_user_id", user.id).eq("website_id", WEBSITE_ID);
+        if (!st.error && st.data && st.data.length) {
+            var ok = st.data.filter(function (r) { return r.status === "approved"; })[0];
+            if (!ok) { msg.textContent = "Your staff account is not approved yet."; return; }
+            ownerId = ok.owner_user_id; readOnly = true;
+        }
+
+        var res = await Promise.all([
+            client.from("school_classes").select("class_name")
+                .eq("user_id", ownerId).eq("website_id", WEBSITE_ID).order("class_name"),
+            client.from("school_profile").select("subjects")
+                .eq("owner_user_id", ownerId).eq("website_id", WEBSITE_ID).maybeSingle()
+        ]);
+
+        var classes = (res[0].data || []).map(function (c) { return c.class_name; });
+        if (!classes.length) { msg.textContent = "Add classes first (Step 0: Manage classes)."; return; }
+
+        var subj = res[1].data && res[1].data.subjects;
+        var list = document.getElementById("subjectList");
+        (Array.isArray(subj) ? subj : []).forEach(function (s) {
+            var n = typeof s === "string" ? s : (s && (s.name || s.subject));
+            if (n) { var o = el("option"); o.value = n; list.appendChild(o); }
+        });
+
+        var sel = document.getElementById("classSel");
+        classes.forEach(function (c) { var o = el("option", "", c); o.value = c; sel.appendChild(o); });
+        sel.addEventListener("change", function () {
+            if (dirty && !confirm("You have unsaved changes. Switch class anyway?")) { sel.value = sel.getAttribute("data-cur"); return; }
+            sel.setAttribute("data-cur", sel.value); loadClass(sel.value);
+        });
+        sel.setAttribute("data-cur", sel.value);
+
+        document.getElementById("addPeriod").addEventListener("click", function () {
+            var last = model.periods[model.periods.length - 1];
+            model.periods.push({ start: last ? last.end : "08:00", end: "" }); dirty = true; render();
+        });
+        document.getElementById("saveBtn").addEventListener("click", save);
+        document.getElementById("printBtn").addEventListener("click", function () { window.print(); });
+        if (readOnly) {
+            document.getElementById("addPeriod").style.display = "none";
+            document.getElementById("saveBtn").style.display = "none";
+        }
+
+        msg.style.display = "none";
+        document.getElementById("content").style.display = "block";
+        loadClass(sel.value);
+    } catch (e) {
+        console.error(e);
+        msg.textContent = "Could not load the timetable. Check your internet and try again.";
+    }
+})();
+</script>
+</body>
+</html>

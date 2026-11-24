@@ -393,7 +393,8 @@
 }
 
 .srg-get-started-inner input[type="email"],
-.srg-get-started-inner input[type="password"] {
+.srg-get-started-inner input[type="password"],
+.srg-get-started-inner #signupExtra input {
     width: 100%;
     box-sizing: border-box;
     font-family: 'Public Sans', system-ui, sans-serif;
@@ -1038,6 +1039,9 @@ body.srg-staff-mode:not(.srg-role-subject):not(.srg-subject-entry) #srg-step-1b 
                 <li class="srg-group-home"><a href="#srg-guidelines">📖 Guidelines</a></li>
 
                 <li class="srg-group-app srg-menu-label">Your workspace</li>
+                <li class="srg-group-app srg-owner-only"><a href="dashboard.html">📊 Dashboard</a></li>
+                <li class="srg-group-app"><a href="timetable.html">🗓️ Lesson timetable</a></li>
+                <li class="srg-group-app"><a href="whats-new.html" id="srgWhatsNewLink">🆕 What&rsquo;s New</a></li>
                 <li class="srg-group-app"><a href="#schoolInformationSection">🏫 School information</a></li>
                 <li class="srg-group-app"><a href="#srg-step-0">Step 0: Manage classes</a></li>
                 <li class="srg-group-app srg-owner-only"><a href="#staffManagementSection">👥 Staff access</a></li>
@@ -1372,6 +1376,23 @@ body.srg-staff-mode:not(.srg-role-subject):not(.srg-subject-entry) #srg-step-1b 
         id="password"
         placeholder="Password"
     >
+
+    <!-- Shown when "Create Account" is tapped: required to register -->
+    <div id="signupExtra" style="display: none;">
+        <input
+            type="text"
+            id="signupFullName"
+            placeholder="Your full name"
+            autocomplete="name"
+        >
+        <input
+            type="tel"
+            id="signupPhone"
+            placeholder="Phone number (e.g. 08012345678)"
+            autocomplete="tel"
+            inputmode="tel"
+        >
+    </div>
 
     <div class="srg-auth-buttons">
 
@@ -2574,7 +2595,7 @@ body.srg-staff-mode:not(.srg-role-subject):not(.srg-subject-entry) #srg-step-1b 
 
   <script src="native-app.js?v=2"></script>
   <script src="drive-backup.js?v=2"></script>
-    <script src="script.js?v=39"></script>
+    <script src="script.js?v=40"></script>
   <script src="fees.js?v=3"></script>
   
 

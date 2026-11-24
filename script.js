@@ -1955,6 +1955,8 @@ document.addEventListener(
 
         checkLogin();
 
+        initializeWhatsNewBadge();
+
     }
 );
 
@@ -2569,6 +2571,44 @@ function attachAuthenticationEvents() {
                 }
 
 
+                /* Name and phone number are required to register, so the
+                   developer can contact new users and guide them. */
+                const extra = document.getElementById("signupExtra");
+                const nameInput = document.getElementById("signupFullName");
+                const phoneInput = document.getElementById("signupPhone");
+
+                let fullName = "";
+                let phone = "";
+
+                if (extra && nameInput && phoneInput) {
+
+                    if (extra.style.display === "none") {
+                        extra.style.display = "block";
+                        nameInput.focus();
+                        setAuthStatus(
+                            "Enter your full name and phone number, then tap Create Account again."
+                        );
+                        return;
+                    }
+
+                    fullName = nameInput.value.trim().replace(/\s+/g, " ");
+                    phone = phoneInput.value.replace(/[\s().-]/g, "");
+
+                    if (fullName.length < 3 || fullName.indexOf(" ") === -1) {
+                        setAuthStatus("❌ Please enter your full name (first and last name).");
+                        nameInput.focus();
+                        return;
+                    }
+
+                    if (!/^\+?\d{10,15}$/.test(phone)) {
+                        setAuthStatus("❌ Please enter a valid phone number, e.g. 08012345678.");
+                        phoneInput.focus();
+                        return;
+                    }
+
+                }
+
+
                 setAuthStatus(
                     "Creating your account..."
                 );
@@ -2592,7 +2632,14 @@ function attachAuthenticationEvents() {
                                 options: {
 
                                     emailRedirectTo:
-                                        WEBSITE_URL
+                                        WEBSITE_URL,
+
+                                    data: {
+                                        full_name: fullName,
+                                        phone: phone,
+                                        website: WEBSITE_ID,
+                                        role: "owner"
+                                    }
 
                                 }
 
@@ -21243,4 +21290,72 @@ async function promotionApply() {
         applyButton.disabled = false;
     }
 
+}
+
+
+/* =========================================================
+   WHAT'S NEW BADGE
+   Developer posts updates in the Supabase table `app_updates`.
+   The menu link "What's New" shows a NEW badge until the owner
+   opens whats-new.html (which records the newest update seen).
+   ========================================================= */
+
+function initializeWhatsNewBadge() {
+
+    const link = document.getElementById("srgWhatsNewLink");
+
+    if (!link) { return; }
+
+    if (!document.getElementById("srgWhatsNewStyle")) {
+        const style = document.createElement("style");
+        style.id = "srgWhatsNewStyle";
+        style.textContent =
+            "#srgWhatsNewLink.srg-has-new::after{content:'NEW';" +
+            "margin-left:8px;padding:2px 7px;border-radius:999px;" +
+            "background:#dc2626;color:#fff;font-size:11px;" +
+            "font-weight:700;letter-spacing:.5px;}";
+        document.head.appendChild(style);
+    }
+
+    const seenKey = "srg_whatsnew_seen_" + WEBSITE_ID;
+
+    async function refresh() {
+
+        try {
+
+            const result = await supabaseClient
+                .from("app_updates")
+                .select("created_at")
+                .in("website_id", [WEBSITE_ID, "all"])
+                .eq("published", true)
+                .order("created_at", { ascending: false })
+                .limit(1);
+
+            if (result.error || !result.data || !result.data.length) {
+                link.classList.remove("srg-has-new");
+                return;
+            }
+
+            const newest = result.data[0].created_at;
+            let seen = "";
+
+            try { seen = localStorage.getItem(seenKey) || ""; } catch (e) { }
+
+            const isNew = !seen || new Date(newest) > new Date(seen);
+
+            link.classList.toggle("srg-has-new", isNew);
+
+        } catch (error) {
+            /* Never let the badge break the app. */
+            console.warn("What's New badge:", error);
+        }
+    }
+
+    refresh();
+
+    const toggle = document.getElementById("srgMenuToggle");
+
+    if (toggle) {
+        toggle.addEventListener("click", refresh);
+    }
 }

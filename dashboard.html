@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>School Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+    :root { --bg:#f4f6fb; --card:#fff; --text:#1f2937; --muted:#6b7280; --accent:#2563eb; --line:#e5e7eb; --ok:#16a34a; --warn:#d97706; }
+    @media (prefers-color-scheme: dark) {
+        :root { --bg:#111827; --card:#1f2937; --text:#f3f4f6; --muted:#9ca3af; --accent:#60a5fa; --line:#374151; }
+    }
+    * { box-sizing: border-box; }
+    body { margin:0; background:var(--bg); color:var(--text); font-family: system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+    header { padding:16px; background:var(--accent); color:#fff; display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+    header a { color:#fff; text-decoration:none; font-weight:600; }
+    header h1 { margin:0; font-size:20px; flex:1; }
+    main { max-width:900px; margin:0 auto; padding:16px; }
+    .toolbar { display:flex; gap:8px; align-items:center; margin-bottom:14px; flex-wrap:wrap; }
+    select { padding:8px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--text); }
+    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:16px; }
+    .stat, .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px; }
+    .stat .n { font-size:28px; font-weight:700; }
+    .stat .l { color:var(--muted); font-size:13px; margin-top:2px; }
+    .card { margin-bottom:16px; }
+    .card h2 { margin:0 0 10px; font-size:16px; }
+    .row { display:flex; align-items:center; gap:10px; margin:6px 0; font-size:14px; }
+    .row .name { width:110px; flex:none; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .bar { flex:1; height:10px; background:var(--line); border-radius:999px; overflow:hidden; }
+    .bar > span { display:block; height:100%; background:var(--accent); }
+    .row .v { width:40px; text-align:right; flex:none; color:var(--muted); }
+    .links { display:flex; gap:10px; flex-wrap:wrap; }
+    .links a { background:var(--accent); color:#fff; text-decoration:none; padding:10px 14px; border-radius:10px; font-weight:600; }
+    #msg { text-align:center; color:var(--muted); padding:30px 0; }
+    .muted { color:var(--muted); font-size:13px; }
+</style>
+</head>
+<body>
+<header>
+    <a href="./">&larr; Back</a>
+    <h1>📊 School Dashboard</h1>
+</header>
+<main>
+    <div id="msg">Loading…</div>
+    <div id="content" style="display:none">
+        <div class="toolbar">
+            <label for="sessionSel">Session:</label>
+            <select id="sessionSel"></select>
+            <label for="termSel">Term:</label>
+            <select id="termSel"></select>
+        </div>
+        <div class="grid" id="stats"></div>
+        <div class="card" id="attnCard"><h2>⚠️ Needs attention</h2><div id="attn"></div></div>
+        <div class="card"><h2>Students per class</h2><div id="perClass"></div></div>
+        <div class="card"><h2>School fees</h2><div id="feesBox"></div></div>
+        <div class="card"><h2>Report allowance</h2><div id="reports"></div></div>
+        <div class="card"><h2>Quick links</h2>
+            <div class="links">
+                <a href="timetable.html">🗓️ Lesson timetable</a>
+                <a href="post-announcement.html">📢 Post announcement</a>
+                <a href="whats-new.html">🆕 What's New</a>
+            </div>
+        </div>
+    </div>
+</main>
+
+<script>
+/* Set to "ibsongee75" on the second site. */
+var WEBSITE_ID = "ibsongee75";
+var CONTEXT_KEY = "reportgen1_academic_context";
+
+var client = supabase.createClient(
+    "https://nzeddvcmabfodmvmgsyg.supabase.co",
+    "sb_publishable_Iaro_sV4r31wPbLycRB4Eg_OCDBy2u3"
+);
+
+function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+}
+
+async function fetchAll(build) {
+    var out = [], from = 0, size = 1000;
+    for (;;) {
+        var r = await build().range(from, from + size - 1);
+        if (r.error) throw r.error;
+        out = out.concat(r.data || []);
+        if (!r.data || r.data.length < size) break;
+        from += size;
+    }
+    return out;
+}
+
+var TERMS = ["First Term", "Second Term", "Third Term"];
+
+function money(n) {
+    try {
+        return new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN", maximumFractionDigits: 0 }).format(Number(n) || 0);
+    } catch (e) { return "₦" + Math.round(Number(n) || 0); }
+}
+
+function todayIso() {
+    var d = new Date();
+    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+
+/* Expected = fee per student x students in the class (class list plus
+   students added by hand in Fees). Collected excludes cancelled payments
+   and waivers; waivers are shown separately. */
+function computeFees(state, session, term) {
+    var terms = term === "All" ? TERMS : [term];
+    var classes = {};
+    function cls(n) { return classes[n] || (classes[n] = { due: 0, keys: {}, collected: 0, waived: 0 }); }
+
+    state.students.forEach(function (st) {
+        if (st.session === session) cls(st.class_name).keys[st.match_key || Math.random()] = true;
+    });
+    state.fees.manual.forEach(function (m) {
+        if (m.session === session) cls(m.class_name).keys[m.match_key || Math.random()] = true;
+    });
+    state.fees.items.forEach(function (i) {
+        if (i.session === session && terms.indexOf(i.term) >= 0) cls(i.class_name).due += Number(i.amount) || 0;
+    });
+
+    var methods = {}, today = 0;
+    state.fees.payments.forEach(function (p) {
+        if (p.voided || p.session !== session || terms.indexOf(p.term) < 0) return;
+        var a = Number(p.amount) || 0, c = cls(p.class_name);
+        if (p.method === "Waiver") { c.waived += a; return; }
+        c.collected += a;
+        methods[p.method || "Other"] = (methods[p.method || "Other"] || 0) + a;
+        if (p.paid_on === todayIso()) today += a;
+    });
+
+    var total = { expected: 0, collected: 0, waived: 0 }, rows = [];
+    Object.keys(classes).forEach(function (n) {
+        var c = classes[n], count = Object.keys(c.keys).length;
+        var expected = c.due * count;
+        total.expected += expected; total.collected += c.collected; total.waived += c.waived;
+        if (expected || c.collected || c.waived) rows.push({ name: n, expected: expected, collected: c.collected, waived: c.waived });
+    });
+    rows.sort(function (a, b) { return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }); });
+    return { total: total, rows: rows, methods: methods, today: today };
+}
+
+function renderFees(state, session, term) {
+    var box = document.getElementById("feesBox");
+    box.innerHTML = "";
+    if (!state.fees) {
+        box.appendChild(el("p", "muted", "Fees are not set up yet (run fees.sql in Supabase and set fees in the Fees area)."));
+        return null;
+    }
+    var f = computeFees(state, session, term);
+    var outstanding = f.total.expected - f.total.collected - f.total.waived;
+    function line(label, value, strong) {
+        var r = el("div", "row");
+        r.appendChild(el("div", "name", label)); r.lastChild.style.width = "150px";
+        var v = el("div", "", value); v.style.fontWeight = strong ? "700" : "400";
+        r.appendChild(v); box.appendChild(r);
+    }
+    line("Expected", money(f.total.expected));
+    line("Collected", money(f.total.collected), true);
+    if (f.total.waived) line("Waived", money(f.total.waived));
+    line(outstanding < 0 ? "Overpaid" : "Outstanding", money(Math.abs(outstanding)), true);
+    line("Collected today", money(f.today));
+
+    if (f.rows.length) {
+        box.appendChild(el("h2", "", "By class")).style.marginTop = "14px";
+        f.rows.forEach(function (r) {
+            var row = el("div", "row");
+            row.appendChild(el("div", "name", r.name));
+            var bar = el("div", "bar"), fill = el("span");
+            fill.style.width = (r.expected ? Math.min(100, r.collected / r.expected * 100) : 0) + "%";
+            fill.style.background = "var(--ok)";
+            bar.appendChild(fill); row.appendChild(bar);
+            var v = el("div", "v", money(r.collected) + " / " + money(r.expected));
+            v.style.width = "auto"; v.style.minWidth = "150px";
+            row.appendChild(v); box.appendChild(row);
+        });
+    }
+    var mk = Object.keys(f.methods);
+    if (mk.length) {
+        box.appendChild(el("h2", "", "By payment method")).style.marginTop = "14px";
+        mk.forEach(function (m) { line(m, money(f.methods[m])); });
+    }
+    box.appendChild(el("p", "muted", "Per term, balances carried from earlier terms are counted in those terms. Fees must be set per class in the Fees area to appear as expected."));
+    return f;
+}
+
+function normKey(v) {
+    return String(v || "").toUpperCase().replace(/[^\p{L}\p{N}]+/gu, "");
+}
+
+/* Finds classes with no form master and subjects with no teacher.
+   A class offers its level's subjects (Pre Basic / Basic / Post Basic),
+   or every subject when the class has no level – same rule as the app. */
+function computeUnassigned(state) {
+    var settings = state.settings || {};
+    var classLevels = settings.classLevels || {};
+    var subjectLevels = settings.subjectLevels || {};
+    var found = [];
+
+    state.classes.forEach(function (c) {
+        var key = normKey(c.class_name);
+        var level = "";
+        Object.keys(classLevels).forEach(function (n) { if (normKey(n) === key) level = classLevels[n]; });
+
+        var offered = state.subjectList.filter(function (subj) {
+            var lv = Array.isArray(subjectLevels[subj]) ? subjectLevels[subj] : [];
+            return !level || lv.length === 0 || lv.indexOf(level) >= 0;
+        });
+
+        var rows = state.assignments.filter(function (a) { return normKey(a.class_name) === key; });
+        var hasForm = rows.some(function (a) { return !a.subject; });
+        var taught = {};
+        rows.forEach(function (a) { if (a.subject) taught[normKey(a.subject)] = true; });
+        var missing = offered.filter(function (subj) { return !taught[normKey(subj)]; });
+
+        if (!hasForm || missing.length) {
+            found.push({ name: c.class_name, level: level, noForm: !hasForm, missing: missing });
+        }
+    });
+    return found;
+}
+
+function renderAttention(state) {
+    var box = document.getElementById("attn");
+    box.innerHTML = "";
+    if (!state.classes.length) {
+        box.appendChild(el("p", "muted", "No classes yet."));
+        return 0;
+    }
+    var found = computeUnassigned(state);
+    if (!found.length) {
+        var ok = el("p", "", "✅ Every class has a form master and every subject has a teacher.");
+        ok.style.color = "var(--ok)";
+        box.appendChild(ok);
+        return 0;
+    }
+    var count = 0;
+    found.forEach(function (f) {
+        var item = el("div");
+        item.style.cssText = "border-top:1px solid var(--line);padding:8px 0";
+        item.appendChild(el("strong", "", f.name + (f.level ? " (" + f.level + ")" : "")));
+        if (f.noForm) { item.appendChild(el("div", "", "• No form master assigned")); count++; }
+        if (f.missing.length) {
+            item.appendChild(el("div", "", "• No teacher for: " + f.missing.join(", ")));
+            count += f.missing.length;
+        }
+        box.appendChild(item);
+    });
+    box.appendChild(el("p", "muted", "Assign staff in Staff access. Staff must sign up and be approved first."));
+    return count;
+}
+
+function addStat(n, label) {
+    var s = el("div", "stat");
+    s.appendChild(el("div", "n", String(n)));
+    s.appendChild(el("div", "l", label));
+    document.getElementById("stats").appendChild(s);
+}
+
+function render(state) {
+    var session = document.getElementById("sessionSel").value;
+    var term = document.getElementById("termSel").value;
+    var students = state.students.filter(function (s) { return s.session === session; });
+
+    var perClass = {};
+    var boys = 0, girls = 0;
+    students.forEach(function (s) {
+        perClass[s.class_name] = (perClass[s.class_name] || 0) + 1;
+        var g = String(s.gender || "").trim().charAt(0).toUpperCase();
+        if (g === "M") boys++; else if (g === "F") girls++;
+    });
+
+    var stats = document.getElementById("stats");
+    stats.innerHTML = "";
+    addStat(state.classes.length, "Classes");
+    addStat(students.length, "Students (" + session + ")");
+    addStat(boys + " / " + girls, "Boys / Girls");
+    addStat(state.subjects, "School subjects");
+    addStat(state.staffApproved, "Staff approved");
+    if (state.staffPending) addStat(state.staffPending, "Staff awaiting approval");
+    var needs = renderAttention(state);
+    if (needs) addStat(needs, "Staff slots unassigned");
+    var fees = renderFees(state, session, term);
+    if (fees) {
+        addStat(money(fees.total.collected), "Fees collected");
+        addStat(money(Math.max(0, fees.total.expected - fees.total.collected - fees.total.waived)), "Fees outstanding");
+    }
+
+    var box = document.getElementById("perClass");
+    box.innerHTML = "";
+    var names = state.classes.map(function (c) { return c.class_name; });
+    Object.keys(perClass).forEach(function (n) { if (names.indexOf(n) < 0) names.push(n); });
+    var max = Math.max.apply(null, [1].concat(names.map(function (n) { return perClass[n] || 0; })));
+    if (!names.length) box.appendChild(el("p", "muted", "No classes yet."));
+    names.forEach(function (n) {
+        var count = perClass[n] || 0;
+        var row = el("div", "row");
+        row.appendChild(el("div", "name", n));
+        var bar = el("div", "bar"), fill = el("span");
+        fill.style.width = (count / max * 100) + "%";
+        bar.appendChild(fill);
+        row.appendChild(bar);
+        row.appendChild(el("div", "v", String(count)));
+        box.appendChild(row);
+    });
+}
+
+(async function () {
+    var msg = document.getElementById("msg");
+    try {
+        var sess = await client.auth.getSession();
+        var user = sess.data && sess.data.session && sess.data.session.user;
+        if (!user) { msg.textContent = "Please sign in on the home page first."; return; }
+
+        /* Staff accounts have no dashboard; it belongs to the school owner. */
+        var st = await client.from("school_staff").select("status")
+            .eq("staff_user_id", user.id).eq("website_id", WEBSITE_ID);
+        if (!st.error && st.data && st.data.length) {
+            msg.textContent = "The dashboard is for the school owner."; return;
+        }
+
+        var results = await Promise.all([
+            client.from("school_classes").select("class_name")
+                .eq("user_id", user.id).eq("website_id", WEBSITE_ID).order("class_name"),
+            fetchAll(function () {
+                return client.from("class_students").select("class_name, session, gender, match_key")
+                    .eq("owner_user_id", user.id).eq("website_id", WEBSITE_ID);
+            }),
+            client.from("school_staff").select("status")
+                .eq("owner_user_id", user.id).eq("website_id", WEBSITE_ID),
+            client.from("school_profile").select("subjects, report_settings")
+                .eq("owner_user_id", user.id).eq("website_id", WEBSITE_ID).maybeSingle(),
+            client.from("staff_assignments").select("class_name, subject")
+                .eq("owner_user_id", user.id).eq("website_id", WEBSITE_ID),
+            client.from("subscriptions").select("*")
+                .eq("user_id", user.id).eq("website_id", WEBSITE_ID)
+                .order("created_at", { ascending: false }).limit(1).maybeSingle()
+        ]);
+
+        var fees = null;
+        try {
+            var fr = await Promise.all([
+                fetchAll(function () { return client.from("fee_items").select("class_name, session, term, amount")
+                    .eq("owner_user_id", user.id).eq("website_id", WEBSITE_ID); }),
+                fetchAll(function () { return client.from("fee_payments").select("class_name, session, term, amount, method, voided, paid_on")
+                    .eq("owner_user_id", user.id).eq("website_id", WEBSITE_ID); }),
+                fetchAll(function () { return client.from("fee_students").select("class_name, session, match_key")
+                    .eq("owner_user_id", user.id).eq("website_id", WEBSITE_ID); }).catch(function () { return []; })
+            ]);
+            fees = { items: fr[0], payments: fr[1], manual: fr[2] };
+        } catch (fe) { console.warn("Fees not available:", fe); }
+
+        var classes = (results[0].data) || [];
+        var students = results[1];
+        var staffRows = (results[2].data) || [];
+        var subjectsRaw = results[3].data && results[3].data.subjects;
+        var assignments = (results[4].data) || [];
+        var sub = results[5].data;
+        var profileRow = results[3].data || {};
+        var subjectList = Array.isArray(profileRow.subjects)
+            ? profileRow.subjects.filter(function (x) { return typeof x === "string" && x.trim(); }) : [];
+
+        var subjectCount = 0;
+        if (Array.isArray(subjectsRaw)) subjectCount = subjectsRaw.length;
+        else if (subjectsRaw && typeof subjectsRaw === "object") subjectCount = Object.keys(subjectsRaw).length;
+
+        var state = {
+            classes: classes,
+            students: students,
+            subjects: subjectCount,
+            staffApproved: staffRows.filter(function (r) { return r.status === "approved"; }).length,
+            fees: fees,
+            assignments: assignments,
+            subjectList: subjectList,
+            settings: profileRow.report_settings || {},
+            staffPending: staffRows.filter(function (r) { return r.status === "pending"; }).length
+        };
+
+        var sessions = [];
+        students.forEach(function (s) { if (s.session && sessions.indexOf(s.session) < 0) sessions.push(s.session); });
+        sessions.sort().reverse();
+        var saved = {};
+        try { saved = JSON.parse(localStorage.getItem(CONTEXT_KEY) || "{}") || {}; } catch (e) {}
+        var sel = document.getElementById("sessionSel");
+        if (!sessions.length) sessions.push(saved.session || "No session");
+        sessions.forEach(function (s) {
+            var o = el("option", "", s); o.value = s; sel.appendChild(o);
+        });
+        if (saved.session && sessions.indexOf(saved.session) >= 0) sel.value = saved.session;
+        sel.addEventListener("change", function () { render(state); });
+
+        var termSel = document.getElementById("termSel");
+        ["All"].concat(TERMS).forEach(function (t) {
+            var o = el("option", "", t === "All" ? "All terms" : t); o.value = t; termSel.appendChild(o);
+        });
+        termSel.value = (saved.term && TERMS.indexOf(saved.term) >= 0) ? saved.term : "All";
+        termSel.addEventListener("change", function () { render(state); });
+
+        var rep = document.getElementById("reports");
+        if (sub) {
+            var used = Number(sub.reports_generated) || 0;
+            var carried = Number(sub.carried_over_reports) || 0;
+            var plan = sub.plan || sub.subscription_plan || sub.package || "";
+            if (plan) rep.appendChild(el("p", "", "Plan: " + plan));
+            rep.appendChild(el("p", "", "Reports generated: " + used));
+            if (carried) rep.appendChild(el("p", "", "Carried over from before: " + carried));
+            if (sub.expires_at) rep.appendChild(el("p", "muted", "Expires: " + new Date(sub.expires_at).toLocaleDateString()));
+        } else {
+            rep.appendChild(el("p", "muted", "No subscription found."));
+        }
+
+        render(state);
+        msg.style.display = "none";
+        document.getElementById("content").style.display = "block";
+    } catch (e) {
+        console.error(e);
+        msg.textContent = "Could not load the dashboard. Check your internet and try again.";
+    }
+})();
+</script>
+</body>
+</html>
