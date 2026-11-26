@@ -16967,7 +16967,7 @@ function buildPublishExtra(student, subjects, overallTotal, average, behavior) {
                 computeMatchKey(student["Admission No"], student["Student Name"])
             )
         );
-        if (cached) balanceInfo = cached;
+        if (cached && showFeeBalanceOnReports()) balanceInfo = cached;
     } catch (e) { /* fees are optional */ }
 
     const outstanding =
@@ -21727,6 +21727,31 @@ function applyNextTermFromForm() {
 /* "session|term|matchKey" -> { carry, due, paid, balance } */
 const feeBalanceCache = new Map();
 
+/* The "Show outstanding balance on the reports" tick box (Step 2 & 3).
+   Ticked = the balance prints on each report; unticked = it does not.
+   The choice is remembered on this device. */
+const SHOW_BALANCE_KEY = "srgShowBalanceOnReport";
+
+function showFeeBalanceOnReports() {
+    const box = document.getElementById("showBalanceOnReport");
+    return box ? !!box.checked : true;
+}
+
+(function setupShowBalanceBox() {
+    function start() {
+        const box = document.getElementById("showBalanceOnReport");
+        if (!box) return;
+        try {
+            if (localStorage.getItem(SHOW_BALANCE_KEY) === "0") box.checked = false;
+        } catch (e) { /* storage blocked: keep the default */ }
+        box.addEventListener("change", function () {
+            try { localStorage.setItem(SHOW_BALANCE_KEY, box.checked ? "1" : "0"); } catch (e) { /* ignore */ }
+        });
+    }
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
+    else start();
+})();
+
 function feeCacheKey(session, term, matchKey) {
     return String(session || "") + "|" + String(term || "") + "|" + String(matchKey || "");
 }
@@ -21823,9 +21848,11 @@ function feesNoticeHtml(info, headingHtml) {
 
     const resumption = formatResumptionDate(reportSettings.nextTermResumption);
 
-    const balance = feeBalanceCache.get(
-        feeCacheKey(info.session, info.term, computeMatchKey(info.admissionNo, info.name))
-    );
+    const balance = showFeeBalanceOnReports()
+        ? feeBalanceCache.get(
+            feeCacheKey(info.session, info.term, computeMatchKey(info.admissionNo, info.name))
+        )
+        : undefined;
 
     const cards = [];
     const cardStyle = "border:1px solid #999;border-radius:6px;padding:8px 10px;break-inside:avoid;";

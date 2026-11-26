@@ -1046,7 +1046,6 @@ body.srg-staff-mode:not(.srg-role-subject):not(.srg-subject-entry) #srg-step-1b 
                 <li class="srg-group-app"><a href="#srg-step-0">Step 0: Manage classes</a></li>
                 <li class="srg-group-app srg-owner-only"><a href="#staffManagementSection">👥 Staff access</a></li>
                 <li class="srg-group-app srg-owner-only"><a href="#schoolFeesMenu">₦ School fees</a></li>
-                <li class="srg-group-app srg-owner-only"><a href="#schoolStaffMenu">👥 Staff management</a></li>
                 <li class="srg-group-app"><a href="admissions.html">🎓 Admissions</a></li>
                 <li class="srg-group-app"><a href="post-announcement.html">📢 Post announcement</a></li>
                 <li class="srg-group-app"><a href="#studentRosterSection">Step 1A: Class list</a></li>
@@ -2377,7 +2376,11 @@ body.srg-staff-mode:not(.srg-role-subject):not(.srg-subject-entry) #srg-step-1b 
 
                     </select>
 
-
+                    <label id="showBalanceLabel" style="display:flex;align-items:center;gap:8px;margin:12px 0;font-weight:600;cursor:pointer;">
+                        <input type="checkbox" id="showBalanceOnReport" checked style="width:auto;margin:0;">
+                        <span>Show outstanding balance on the reports</span>
+                    </label>
+                  
                     <button id="generateReport">
 
                         Generate Report
@@ -2615,9 +2618,8 @@ body.srg-staff-mode:not(.srg-role-subject):not(.srg-subject-entry) #srg-step-1b 
 
   <script src="native-app.js?v=2"></script>
   <script src="drive-backup.js?v=2"></script>
-    <script src="script.js?v=41"></script>
+    <script src="script.js?v=42"></script>
   <script src="fees.js?v=3"></script>
-    <script src="staff.js?v=1"></script>
   
 
 
