@@ -3755,28 +3755,63 @@ async function readLegacyBrowserPhotos() {
 
 }
 
-/* ---- Supabase ---- */
-function buildStudentPhotoRow(photoKey, dataUrl) {
-    return {
-        owner_user_id: currentUserId,
-        website_id: WEBSITE_ID,
-        photo_key: photoKey,
-        photo_data: dataUrl,
-        updated_by: staffContext ? staffContext.userId : currentUserId,
-        updated_at: new Date().toISOString()
-    };
+/* ---- Supabase (pictures live in the private Storage bucket) ---- */
+const STUDENT_PHOTO_BUCKET = "student-photos";
+
+function studentPhotoPath(photoKey) {
+    const hex = Array.from(new TextEncoder().encode(String(photoKey)))
+        .map(function (b) { return b.toString(16).padStart(2, "0"); }).join("");
+    return currentUserId + "/" + WEBSITE_ID + "/" + hex + ".jpg";
 }
 
-async function upsertStudentPhotoRows(rows) {
+function studentPhotoDataUrlToBlob(dataUrl) {
+    const parts = String(dataUrl).split(",");
+    const mime = (parts[0].match(/data:([^;]+)/) || [])[1] || "image/jpeg";
+    const bin = atob(parts[1] || "");
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new Blob([bytes], { type: mime });
+}
 
-    if (!rows.length) return null;
+function studentPhotoBlobToDataUrl(blob) {
+    return new Promise(function (resolve, reject) {
+        const reader = new FileReader();
+        reader.onload = function () { resolve(String(reader.result)); };
+        reader.onerror = function () { reject(reader.error || new Error("Could not read the picture.")); };
+        reader.readAsDataURL(blob);
+    });
+}
+
+/* Uploads the file, then records its path in the table. Returns an error or null. */
+async function persistStudentPhoto(photoKey, dataUrl) {
+
+    const path = studentPhotoPath(photoKey);
+
+    const up = await supabaseClient.storage
+        .from(STUDENT_PHOTO_BUCKET)
+        .upload(path, studentPhotoDataUrlToBlob(dataUrl), { contentType: "image/jpeg", upsert: true });
+
+    if (up.error) return up.error;
 
     const { error } = await supabaseClient
         .from(STUDENT_PHOTO_TABLE)
-        .upsert(rows, { onConflict: "owner_user_id,website_id,photo_key" });
+        .upsert([{
+            owner_user_id: currentUserId,
+            website_id: WEBSITE_ID,
+            photo_key: photoKey,
+            photo_path: path,
+            photo_data: null,
+            updated_by: staffContext ? staffContext.userId : currentUserId,
+            updated_at: new Date().toISOString()
+        }], { onConflict: "owner_user_id,website_id,photo_key" });
 
     return error || null;
 
+}
+
+async function persistStudentPhotoSafe(photoKey, dataUrl) {
+    try { return await persistStudentPhoto(photoKey, dataUrl); }
+    catch (e) { return e; }
 }
 
 async function moveBrowserPhotosToAccount() {
@@ -3786,30 +3821,20 @@ async function moveBrowserPhotosToAccount() {
     const local = await readLegacyBrowserPhotos();
     const pending = Object.keys(local).filter(function (key) { return !studentPhotoMap[key]; });
 
-    if (!pending.length) return 0;
-
     let moved = 0;
 
-    for (let i = 0; i < pending.length; i += 10) {
+    for (const key of pending) {
 
-        const rows = pending.slice(i, i + 10).map(function (key) {
-            return buildStudentPhotoRow(key, local[key]);
-        });
-
-        let error = null;
-
-        try { error = await upsertStudentPhotoRows(rows); }
-        catch (e) { error = e; }
-
-        if (error) {
-            console.error("Moving browser pictures error:", error);
-            break;
-        }
-
-        rows.forEach(function (row) {
-            studentPhotoMap[row.photo_key] = row.photo_data;
+        try {
+            const small = await makePhotoThumbnail(local[key]);
+            const error = await persistStudentPhotoSafe(key, small);
+            if (error) {
+                console.error("Moving browser pictures error:", error);
+                break;
+            }
+            studentPhotoMap[key] = small;
             moved++;
-        });
+        } catch (e) { /* skip a damaged picture */ }
 
     }
 
@@ -3817,46 +3842,35 @@ async function moveBrowserPhotosToAccount() {
 
 }
 
-/* Pictures saved earlier at a larger size are made smaller once. */
-async function shrinkLargeSavedStudentPhotos() {
+/* Pictures still stored inside the table are moved into Storage
+   (made smaller first if they are large). */
+async function moveLegacyStudentPhotosToStorage(keys) {
 
-    if (!canEditStudentPhotos()) return 0;
-
-    const big = Object.keys(studentPhotoMap).filter(function (key) {
-        return String(studentPhotoMap[key] || "").length > PHOTO_SHRINK_ABOVE;
-    });
-
-    if (!big.length) return 0;
+    if (!canEditStudentPhotos() || !keys.length) return 0;
 
     let done = 0;
 
-    for (let i = 0; i < big.length; i += 10) {
+    for (const key of keys) {
 
-        const rows = [];
+        try {
+            let data = studentPhotoMap[key];
+            if (!data) continue;
 
-        for (const key of big.slice(i, i + 10)) {
-            try {
-                const small = await makePhotoThumbnail(studentPhotoMap[key]);
-                if (small.length < studentPhotoMap[key].length) {
-                    rows.push(buildStudentPhotoRow(key, small));
-                }
-            } catch (e) { /* leave this picture as it is */ }
-        }
+            if (data.length > PHOTO_SHRINK_ABOVE) {
+                try {
+                    const small = await makePhotoThumbnail(data);
+                    if (small.length < data.length) data = small;
+                } catch (e) { /* keep the original */ }
+            }
 
-        let error = null;
-
-        try { error = await upsertStudentPhotoRows(rows); }
-        catch (e) { error = e; }
-
-        if (error) {
-            console.error("Shrinking pictures error:", error);
-            break;
-        }
-
-        rows.forEach(function (row) {
-            studentPhotoMap[row.photo_key] = row.photo_data;
+            const error = await persistStudentPhotoSafe(key, data);
+            if (error) {
+                console.error("Moving picture to storage error:", error);
+                break;
+            }
+            studentPhotoMap[key] = data;
             done++;
-        });
+        } catch (e) { /* leave this picture as it is */ }
 
     }
 
@@ -3879,13 +3893,15 @@ async function loadStudentPhotos() {
     try {
 
         const loaded = {};
+        const legacy = [];
+        const withPath = [];
         const pageSize = 100;
 
         for (let from = 0; ; from += pageSize) {
 
             const { data, error } = await supabaseClient
                 .from(STUDENT_PHOTO_TABLE)
-                .select("photo_key, photo_data")
+                .select("photo_key, photo_path, photo_data")
                 .eq("owner_user_id", currentUserId)
                 .eq("website_id", WEBSITE_ID)
                 .order("photo_key", { ascending: true })
@@ -3894,11 +3910,31 @@ async function loadStudentPhotos() {
             if (error) throw error;
 
             (data || []).forEach(function (row) {
-                if (row.photo_key && row.photo_data) loaded[row.photo_key] = row.photo_data;
+                if (!row.photo_key) return;
+                if (row.photo_path) {
+                    withPath.push({ key: row.photo_key, path: row.photo_path, fallback: row.photo_data || "" });
+                } else if (row.photo_data) {
+                    loaded[row.photo_key] = row.photo_data;
+                    legacy.push(row.photo_key);
+                }
             });
 
             if (!data || data.length < pageSize) break;
 
+        }
+
+        for (let i = 0; i < withPath.length; i += 8) {
+            await Promise.all(withPath.slice(i, i + 8).map(async function (item) {
+                try {
+                    const { data, error } = await supabaseClient.storage
+                        .from(STUDENT_PHOTO_BUCKET).download(item.path);
+                    if (error || !data) throw error || new Error("empty");
+                    loaded[item.key] = await studentPhotoBlobToDataUrl(data);
+                } catch (e) {
+                    console.error("Picture download error:", item.path, e);
+                    if (item.fallback) loaded[item.key] = item.fallback;
+                }
+            }));
         }
 
         if (userAtStart !== currentUserId) return;
@@ -3911,11 +3947,11 @@ async function loadStudentPhotos() {
             studentPhotoNotice = "✅ " + moved + " picture(s) that were saved only on this browser have been moved to your account.";
         }
 
-        const shrunk = await shrinkLargeSavedStudentPhotos();
+        const shifted = await moveLegacyStudentPhotosToStorage(legacy);
 
-        if (shrunk > 0) {
+        if (shifted > 0) {
             studentPhotoNotice = (studentPhotoNotice ? studentPhotoNotice + " " : "") +
-                "✅ " + shrunk + " saved picture(s) were made smaller to save space.";
+                "✅ " + shifted + " saved picture(s) were moved to file storage to save space.";
         }
 
     } catch (error) {
@@ -3931,7 +3967,7 @@ async function saveStudentPhoto(photoKey, dataUrl, fileName) {
 
     if (!currentUserId) throw new Error("Please sign in first.");
 
-    const error = await upsertStudentPhotoRows([buildStudentPhotoRow(photoKey, dataUrl)]);
+    const error = await persistStudentPhoto(photoKey, dataUrl);
 
     if (error) throw error;
 
@@ -3950,6 +3986,18 @@ async function deleteAllStudentPhotos() {
         .eq("website_id", WEBSITE_ID);
 
     if (error) throw error;
+
+    try {
+        const folder = currentUserId + "/" + WEBSITE_ID;
+        for (let guard = 0; guard < 20; guard++) {
+            const listed = await supabaseClient.storage
+                .from(STUDENT_PHOTO_BUCKET).list(folder, { limit: 500 });
+            if (listed.error || !listed.data || !listed.data.length) break;
+            const rm = await supabaseClient.storage.from(STUDENT_PHOTO_BUCKET)
+                .remove(listed.data.map(function (f) { return folder + "/" + f.name; }));
+            if (rm.error) { console.error("Remove picture files error:", rm.error); break; }
+        }
+    } catch (e) { console.error("Remove picture files error:", e); }
 
     studentPhotoMap = {};
 
@@ -4137,6 +4185,13 @@ async function deleteStudentPhotoKeys(keys) {
         .in("photo_key", keys);
 
     if (error) throw error;
+
+    try {
+        const rm = await supabaseClient.storage
+            .from(STUDENT_PHOTO_BUCKET)
+            .remove(keys.map(studentPhotoPath));
+        if (rm.error) console.error("Remove picture file error:", rm.error);
+    } catch (e) { console.error("Remove picture file error:", e); }
 
     keys.forEach(function (key) { delete studentPhotoMap[key]; });
 
