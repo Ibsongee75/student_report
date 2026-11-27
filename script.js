@@ -15255,7 +15255,7 @@ async function downloadExcelTemplate() {
                 "Exams",
                 "Match Key",
                 "Total"
-            ]];
+            ].concat(extraList.map(function (item) { return item.name; }))];
 
             /* Pre-fill with anything a subject teacher already
                uploaded for this class via the single-subject
