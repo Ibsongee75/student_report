@@ -564,6 +564,16 @@
         text-align: left;
     }
 
+    /* Extra assessment columns: let the browser size the columns to their
+       content instead of splitting the width equally, so the added columns
+       do not make headings wrap and the page shrink to fit. */
+    table.has-extras { table-layout: auto; }
+    table.has-extras th { white-space: nowrap; }
+    table.has-extras th,
+    table.has-extras td { padding: 4px 2px; }
+    table.has-extras th:first-child,
+    table.has-extras td:first-child { width: 22%; white-space: normal; }
+
     /* Summary */
     .summary-information {
         display: grid;
@@ -1110,7 +1120,7 @@ WEBSITE ID
 
 THIS COPY IS FOR:
 
-ReportSheet
+student-report
 ibsongee75
 =========================================================
 */
@@ -1530,13 +1540,14 @@ function renderExtraDetails(data, subjects, isCumulative) {
         if (showRemark) headRow.appendChild(el("th", "", "Remark"));
     }
 
+    var extraCount = document.querySelectorAll("#resultArea thead th.x-assess").length;
     var bodyRows = document.querySelectorAll("#subjectResultsBody tr");
     bodyRows.forEach(function (row, i) {
         var subject = subjects[i] || {};
         var cells = row.children;
         if (showAvg) {
             var td = el("td", "", has(subject.subject_average) ? subject.subject_average : "\u2014");
-            row.insertBefore(td, cells[6] || null);
+            row.insertBefore(td, cells[6 + extraCount] || null);
         }
         if (showRemark) row.appendChild(el("td", "", subject.remark || ""));
     });
@@ -1546,7 +1557,7 @@ function renderExtraDetails(data, subjects, isCumulative) {
     if (foot && has(extra.overall_total)) {
         var tr = el("tr");
         var th1 = el("th", "", "OVERALL TOTAL");
-        th1.colSpan = 4;
+        th1.colSpan = 4 + extraCount;
         var th2 = el("th", "", String(extra.overall_total));
         th2.colSpan = 3 + (showAvg ? 1 : 0) + (showRemark ? 1 : 0);
         tr.appendChild(th1); tr.appendChild(th2);
@@ -1648,6 +1659,61 @@ function renderExtraDetails(data, subjects, isCumulative) {
             comments.parentNode.insertBefore(fSec, comments.nextSibling);
         }
     }
+}
+
+/* =====================================================
+   EXTRA ASSESSMENTS (e.g. 3rd CA, Project) added by the school.
+   Names and maximums come from extra.marks.extras; each subject's
+   marks come from subject.extras or extra.subject_extras.
+===================================================== */
+function getSubjectExtras(data, subject) {
+    if (subject && subject.extras && typeof subject.extras === "object") return subject.extras;
+    var map = data && data.extra && data.extra.subject_extras;
+    if (map && subject && map[subject.subject_name] && typeof map[subject.subject_name] === "object") {
+        return map[subject.subject_name];
+    }
+    return {};
+}
+
+function getPublishedExtraList(data, subjects) {
+    var list = [];
+    var marks = data && data.extra && data.extra.marks;
+    if (marks && Array.isArray(marks.extras)) {
+        marks.extras.forEach(function (item) {
+            if (item && item.name) list.push({ name: String(item.name), max: item.max });
+        });
+    }
+    if (list.length === 0) {
+        subjects.forEach(function (subject) {
+            Object.keys(getSubjectExtras(data, subject)).forEach(function (name) {
+                if (!list.some(function (item) { return item.name === name; })) {
+                    list.push({ name: name, max: null });
+                }
+            });
+        });
+    }
+    return list;
+}
+
+function renderExtraAssessmentHeaders(extraList) {
+    document.querySelectorAll("#resultArea thead th.x-assess").forEach(function (th) { th.remove(); });
+    var table = document.querySelector("#resultArea table");
+    if (table) table.classList.toggle("has-extras", extraList.length > 0);
+
+    var totalHead = document.getElementById("thTotal");
+    if (!totalHead) return;
+    extraList.forEach(function (item) {
+        var th = document.createElement("th");
+        th.className = "x-assess";
+        th.textContent = item.name;
+        if (item.max !== null && item.max !== undefined && item.max !== "") {
+            th.appendChild(document.createElement("br"));
+            var small = document.createElement("small");
+            small.textContent = item.max + " mks";
+            th.appendChild(small);
+        }
+        totalHead.parentNode.insertBefore(th, totalHead);
+    });
 }
 
 function displayResult(
@@ -1803,6 +1869,9 @@ function displayResult(
     applyResultMode(isCumulative);
     renderCumulativeFooter(subjects, isCumulative);
 
+    const extraList = isCumulative ? [] : getPublishedExtraList(data, subjects);
+    renderExtraAssessmentHeaders(extraList);
+
 
     subjects.forEach(
         function(subject) {
@@ -1842,11 +1911,17 @@ function displayResult(
                     subject.subject_name,
                     subject.ca1,
                     subject.ca2,
-                    subject.exam,
+                    subject.exam
+                ].concat(
+                    extraList.map(function (item) {
+                        var mark = getSubjectExtras(data, subject)[item.name];
+                        return (mark === undefined || mark === null || mark === "") ? "\u2014" : mark;
+                    })
+                ).concat([
                     subject.total,
                     subject.grade,
                     subjectPosition
-                ];
+                ]);
 
 
             values.forEach(
